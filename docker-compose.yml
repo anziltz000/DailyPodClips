@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  dailypodclips:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dailypodclips
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist downloads, processed clips, transcripts, and Google auth tokens
+      - ./data/downloads:/app/data/downloads
+      - ./data/processed:/app/data/processed
+      - ./data/transcripts:/app/data/transcripts
+      - ./data/temp:/app/data/temp
+      - ./data/auth:/app/data/auth
+      - ./data/cookies:/app/data/cookies
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATA_DIR=/app/data
+    restart: unless-stopped
+    # Limit resources to stay within OCL Free Tier
+    deploy:
+      resources:
+        limits:
+          cpus: "3.5"
+          memory: 20G
+        reservations:
+          cpus: "1.0"
+          memory: 4G

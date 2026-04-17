@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Data (persisted via Docker volumes, not committed)
+data/downloads/
+data/processed/
+data/transcripts/
+data/temp/
+data/auth/token.json
+data/cookies/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+*.env
+
+# Node (if any)
+node_modules/

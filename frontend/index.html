@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DailyPodClips — Viral Podcast Clip Factory</title>
+    <meta name="description" content="Self-hosted Opus Clips alternative. Extract viral moments from podcasts and create 1:1 social media clips.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- ═══ HEADER ═══ -->
+    <header id="app-header">
+        <div class="header-inner">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="url(#gLogo)" stroke-width="2.5"/><path d="M12 20V12l8 4-8 4z" fill="url(#gLogo)"/><defs><linearGradient id="gLogo" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#a855f7"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs></svg>
+                </div>
+                <h1>DailyPod<span class="accent">Clips</span></h1>
+            </div>
+            <div class="header-status">
+                <span id="status-dot" class="status-dot"></span>
+                <span id="status-text">Idle</span>
+            </div>
+        </div>
+    </header>
+
+    <main id="app-main">
+        <!-- ═══ BLOCK 1: DOWNLOADER ═══ -->
+        <section class="pipeline-block" id="block-downloader">
+            <div class="block-header">
+                <div class="block-number">01</div>
+                <div class="block-title-group">
+                    <h2>Video Downloader</h2>
+                    <p class="block-subtitle">YouTube link, direct MP4, or any supported URL</p>
+                </div>
+                <div class="block-controls">
+                    <button class="btn btn-stop" onclick="stopBlock('downloader')" title="Stop">
+                        <svg viewBox="0 0 20 20" fill="currentColor"><rect x="5" y="5" width="10" height="10" rx="1.5"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="block-body">
+                <div class="input-group">
+                    <label for="download-url">Video URL</label>
+                    <input type="url" id="download-url" placeholder="https://youtube.com/watch?v=... or direct .mp4 link" autocomplete="off">
+                </div>
+                <details class="cookies-section">
+                    <summary>🍪 yt-dlp Cookies (optional)</summary>
+                    <textarea id="download-cookies" rows="4" placeholder="Paste Netscape-format cookies here for age-gated/private videos..."></textarea>
+                </details>
+                <div class="action-row">
+                    <button class="btn btn-primary" id="btn-download" onclick="startDownload()">
+                        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 3a1 1 0 011 1v7.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 11.586V4a1 1 0 011-1z"/><path d="M4 15a1 1 0 011 1h10a1 1 0 110 2H5a1 1 0 01-1-1v-1a1 1 0 011-1z"/></svg>
+                        Download
+                    </button>
+                </div>
+                <div class="log-console" id="log-downloader"></div>
+            </div>
+        </section>
+
+        <!-- ═══ BLOCK 2: TRANSCRIBER ═══ -->
+        <section class="pipeline-block" id="block-transcriber">
+            <div class="block-header">
+                <div class="block-number">02</div>
+                <div class="block-title-group">
+                    <h2>Transcriber & GDrive</h2>
+                    <p class="block-subtitle">Faster-Whisper (base model, int8) → Google Drive upload</p>
+                </div>
+                <div class="block-controls">
+                    <button class="btn btn-stop" onclick="stopBlock('transcriber')" title="Stop">
+                        <svg viewBox="0 0 20 20" fill="currentColor"><rect x="5" y="5" width="10" height="10" rx="1.5"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="block-body">
+                <div class="action-row">
+                    <button class="btn btn-primary" id="btn-transcribe" onclick="startTranscribe()">
+                        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 4a1 1 0 011-1h4a1 1 0 011 1v1h3a1 1 0 110 2H4a1 1 0 110-2h3V4zM6 9a1 1 0 011 1v5a1 1 0 002 0v-5a1 1 0 112 0v5a1 1 0 002 0v-5a1 1 0 112 0v5a2 2 0 01-2 2H8a2 2 0 01-2-2v-5a1 1 0 011-1z"/></svg>
+                        Transcribe
+                    </button>
+                </div>
+                <!-- Transcript preview -->
+                <div id="transcript-preview" class="transcript-box" style="display:none;">
+                    <h3>📝 Transcript</h3>
+                    <pre id="transcript-content"></pre>
+                </div>
+                <!-- GDrive Auth -->
+                <details class="gdrive-section">
+                    <summary>☁ Google Drive Integration</summary>
+                    <div class="gdrive-inner">
+                        <p class="hint">Upload <code>credentials.json</code> to <code>/app/data/auth/</code> on the server first.</p>
+                        <div class="action-row">
+                            <button class="btn btn-secondary" onclick="getGDriveAuthUrl()">Get Auth URL</button>
+                        </div>
+                        <div id="gdrive-auth-url-box" style="display:none;">
+                            <p>Open this link and authorize:</p>
+                            <a id="gdrive-auth-link" href="#" target="_blank" class="auth-link">Click to authorize</a>
+                            <div class="input-group" style="margin-top:0.75rem;">
+                                <label for="gdrive-auth-code">Paste Authorization Code</label>
+                                <input type="text" id="gdrive-auth-code" placeholder="Paste the code from Google here...">
+                            </div>
+                            <button class="btn btn-primary" onclick="submitGDriveCode()">Submit Code</button>
+                        </div>
+                        <div class="input-group" style="margin-top:1rem;">
+                            <label for="gdrive-folder-id">GDrive Folder ID</label>
+                            <input type="text" id="gdrive-folder-id" placeholder="Paste your Google Drive folder ID...">
+                        </div>
+                        <button class="btn btn-secondary" onclick="uploadToGDrive()">Upload to GDrive</button>
+                    </div>
+                </details>
+                <div class="log-console" id="log-transcriber"></div>
+            </div>
+        </section>
+
+        <!-- ═══ BLOCK 3: CLIP PROCESSOR ═══ -->
+        <section class="pipeline-block" id="block-clipprocessor">
+            <div class="block-header">
+                <div class="block-number">03</div>
+                <div class="block-title-group">
+                    <h2>Clip Processor</h2>
+                    <p class="block-subtitle">Paste AI JSON → Cut → Remove Silence → Render → Reframe 1:1</p>
+                </div>
+                <div class="block-controls">
+                    <button class="btn btn-stop" onclick="stopBlock('clipprocessor')" title="Stop">
+                        <svg viewBox="0 0 20 20" fill="currentColor"><rect x="5" y="5" width="10" height="10" rx="1.5"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="block-body">
+                <div class="input-group">
+                    <label for="clip-json">AI-Generated Clip JSON</label>
+                    <textarea id="clip-json" rows="12" placeholder='Paste the JSON array from Claude/Gemini here...
+[
+  {
+    "clip_number": 1,
+    "hook": "Hook text for filename",
+    "segments_to_keep": [
+      {"start_timestamp": "00:01:23", "end_timestamp": "00:01:45"},
+      {"start_timestamp": "00:02:10", "end_timestamp": "00:02:30"}
+    ],
+    "estimated_total_seconds": 42
+  }
+]'></textarea>
+                </div>
+                <div class="action-row">
+                    <button class="btn btn-secondary" onclick="validateJSON()">
+                        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                        Validate JSON
+                    </button>
+                    <button class="btn btn-primary" id="btn-process" onclick="processClips()">
+                        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
+                        Execute Clips
+                    </button>
+                    <button class="btn btn-accent" id="btn-reframe" onclick="reframeAll()">
+                        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M4 3a1 1 0 00-1 1v4a1 1 0 002 0V5h3a1 1 0 000-2H4zM16 3a1 1 0 00-1 1h-3a1 1 0 100 2h3v3a1 1 0 102 0V4a1 1 0 00-1-1zM4 17a1 1 0 001-1v-3a1 1 0 10-2 0v3h-3a1 1 0 100 2h4zm12 0a1 1 0 001-1h3a1 1 0 100-2h-3v-3a1 1 0 10-2 0v4a1 1 0 001 1z"/></svg>
+                        Reframe 1:1
+                    </button>
+                </div>
+                <div id="json-status" class="json-status"></div>
+                <!-- GDrive upload for clips -->
+                <details class="gdrive-section" style="margin-top:1rem;">
+                    <summary>☁ Export Clips to GDrive</summary>
+                    <div class="gdrive-inner">
+                        <div class="input-group">
+                            <label for="gdrive-clips-folder">GDrive Folder ID for Clips</label>
+                            <input type="text" id="gdrive-clips-folder" placeholder="Folder ID...">
+                        </div>
+                        <button class="btn btn-secondary" onclick="uploadClipsToGDrive()">Upload All Clips</button>
+                    </div>
+                </details>
+                <div class="log-console" id="log-clipprocessor"></div>
+            </div>
+        </section>
+
+        <!-- ═══ BLOCK 4: GALLERY ═══ -->
+        <section class="pipeline-block" id="block-gallery">
+            <div class="block-header">
+                <div class="block-number">04</div>
+                <div class="block-title-group">
+                    <h2>Clip Gallery</h2>
+                    <p class="block-subtitle">Preview and download your processed clips</p>
+                </div>
+                <div class="block-controls">
+                    <button class="btn btn-secondary" onclick="refreshGallery()">
+                        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="block-body">
+                <div id="gallery-grid" class="gallery-grid">
+                    <p class="empty-state">No clips yet. Process some clips first!</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ DANGER ZONE ═══ -->
+        <section class="danger-zone">
+            <button class="btn btn-danger" onclick="clearAllData()">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                Delete All Files & Cache
+            </button>
+        </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

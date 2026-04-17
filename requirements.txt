@@ -1,0 +1,25 @@
+# ── Web Framework ─────────────────────────────────────
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+sse-starlette==2.3.3
+python-multipart==0.0.20
+
+# ── Transcription (CPU-only, ARM64 compatible) ────────
+faster-whisper==1.1.1
+
+# ── Face Detection (MediaPipe for ARM64) ──────────────
+mediapipe==0.10.21
+opencv-python-headless==4.11.0.86
+numpy>=1.26.0,<2.0.0
+
+# ── Google Drive Upload (OAuth2 copy-paste flow) ──────
+google-api-python-client==2.170.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.1
+
+# ── Silence Removal ──────────────────────────────────
+auto-editor==28.2.0
+
+# ── Utilities ─────────────────────────────────────────
+aiofiles==24.1.0
+pydantic==2.11.3
