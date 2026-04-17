@@ -18,7 +18,7 @@ google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.1
 
 # ── Silence Removal ──────────────────────────────────
-auto-editor==28.2.0
+auto-editor==29.3.1
 
 # ── Utilities ─────────────────────────────────────────
 aiofiles==24.1.0
