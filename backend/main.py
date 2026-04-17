@@ -444,18 +444,56 @@ async def process_clips(req: ClipJSON):
             await broadcast_log(block_id, "  Silence removal failed, using joined file")
             silence_removed = joined_file
 
+        # STEP 4: Face Detection & Final Render (1:1)
+        from backend.face_tracker import generate_crop_filter
+        
+        await broadcast_log(block_id, "  Detecting faces (2fps) for 1:1 crop...")
+        loop = asyncio.get_event_loop()
+        filter_path = await loop.run_in_executor(
+            None, generate_crop_filter, str(silence_removed), str(TEMP_DIR)
+        )
+
         final_file = PROCESSED_DIR / f"{safe_hook}.mp4"
-        cmd = ["ffmpeg", "-y", "-i", str(silence_removed),
-               "-c:v", FFMPEG_VIDEO_CODEC, "-preset", FFMPEG_VIDEO_PRESET,
-               "-crf", FFMPEG_VIDEO_CRF, "-profile:v", FFMPEG_VIDEO_PROFILE,
-               "-level", FFMPEG_VIDEO_LEVEL, "-pix_fmt", FFMPEG_PIXEL_FORMAT,
-               "-c:a", FFMPEG_AUDIO_CODEC, "-b:a", FFMPEG_AUDIO_BITRATE,
-               "-ar", FFMPEG_AUDIO_SAMPLE_RATE, "-movflags", "+faststart", str(final_file)]
-        await broadcast_log(block_id, "  Final render (16:9 HD)...")
-        rc = await run_subprocess_with_logs(block_id, cmd)
+        
+        if not filter_path:
+            await broadcast_log(block_id, "  No faces detected, center crop (1:1)")
+            cmd = ["ffmpeg", "-y", "-i", str(silence_removed),
+                   "-vf", "crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2,scale=1080:1080:flags=lanczos",
+                   "-c:v", FFMPEG_VIDEO_CODEC, "-preset", FFMPEG_VIDEO_PRESET,
+                   "-crf", FFMPEG_VIDEO_CRF, "-profile:v", FFMPEG_VIDEO_PROFILE,
+                   "-level", FFMPEG_VIDEO_LEVEL, "-pix_fmt", FFMPEG_PIXEL_FORMAT,
+                   "-c:a", FFMPEG_AUDIO_CODEC, "-b:a", FFMPEG_AUDIO_BITRATE,
+                   "-ar", FFMPEG_AUDIO_SAMPLE_RATE, "-movflags", "+faststart", str(final_file)]
+            rc = await run_subprocess_with_logs(block_id, cmd)
+        else:
+            await broadcast_log(block_id, "  Applying dynamic face crop (1:1 HD render)...")
+            from backend.face_tracker import get_video_info
+            
+            info = get_video_info(str(silence_removed))
+            crop_size = min(info["width"], info["height"])
+            center_x = (info["width"] - crop_size) // 2
+            center_y = (info["height"] - crop_size) // 2
+            
+            filter_complex = (
+                f"sendcmd=f='{filter_path}',"
+                f"crop={crop_size}:{crop_size}:{center_x}:{center_y},"
+                f"scale=1080:1080:flags=lanczos"
+            )
+            
+            cmd = ["ffmpeg", "-y", "-i", str(silence_removed),
+                   "-vf", filter_complex,
+                   "-c:v", FFMPEG_VIDEO_CODEC, "-preset", FFMPEG_VIDEO_PRESET,
+                   "-crf", FFMPEG_VIDEO_CRF, "-profile:v", FFMPEG_VIDEO_PROFILE,
+                   "-level", FFMPEG_VIDEO_LEVEL, "-pix_fmt", FFMPEG_PIXEL_FORMAT,
+                   "-c:a", FFMPEG_AUDIO_CODEC, "-b:a", FFMPEG_AUDIO_BITRATE,
+                   "-ar", FFMPEG_AUDIO_SAMPLE_RATE, "-movflags", "+faststart", str(final_file)]
+            rc = await run_subprocess_with_logs(block_id, cmd)
+
         if rc != 0:
+            await broadcast_log(block_id, "  ❌ Final render failed")
             continue
-        await broadcast_log(block_id, f"  Clip saved: {safe_hook}.mp4")
+            
+        await broadcast_log(block_id, f"  ✅ Clip saved (1:1): {safe_hook}.mp4")
         results.append({"clip_number": clip_num, "filename": f"{safe_hook}.mp4"})
 
     for f in TEMP_DIR.glob("*"):

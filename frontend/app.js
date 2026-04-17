@@ -122,6 +122,9 @@ function notifyUser(title, body) {
 
 // ── BLOCK 1: DOWNLOADER ──────────────────────────────────────
 async function startDownload() {
+    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+        Notification.requestPermission();
+    }
     const url = document.getElementById('download-url').value.trim();
     if (!url) {
         alert('Please enter a video URL');
@@ -238,7 +241,7 @@ async function uploadClipsToGDrive() {
     }
 }
 
-// ── BLOCK 3: CLIP PROCESSOR ─────────────────────────────────
+// ── BLOCK 3: CLIP PROCESSOR ──────────────────────────────────
 function validateJSON() {
     const jsonText = document.getElementById('clip-json').value.trim();
     const statusEl = document.getElementById('json-status');
@@ -272,9 +275,14 @@ function validateJSON() {
     }
 }
 
-async function processClips() {
-    const jsonText = document.getElementById('clip-json').value.trim();
+async function startProcessing() {
+    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+        Notification.requestPermission();
+    }
+    
     if (!validateJSON()) return;
+    
+    const jsonText = document.getElementById('clip-json').value.trim();
 
     clearLog('clipprocessor');
     setLoading('btn-process', true);
@@ -292,25 +300,6 @@ async function processClips() {
         notifyUser('Processing Failed', err.message);
     } finally {
         setLoading('btn-process', false);
-    }
-}
-
-async function reframeAll() {
-    clearLog('clipprocessor');
-    setLoading('btn-reframe', true);
-    setStatus('Reframing clips (1:1)...', true);
-
-    try {
-        const result = await apiPost('/api/reframe-all');
-        setStatus(`Reframed ${result.reframed} clips`);
-        notifyUser('Reframe Complete', `Reframed ${result.reframed} clips to 9:16 vertical.`);
-        await refreshGallery();
-    } catch (err) {
-        setStatus('Reframe failed');
-        appendLog(document.getElementById('log-clipprocessor'), `❌ Error: ${err.message}`);
-        notifyUser('Reframe Failed', err.message);
-    } finally {
-        setLoading('btn-reframe', false);
     }
 }
 

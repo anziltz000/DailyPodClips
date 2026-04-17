@@ -95,24 +95,25 @@
                         <p class="hint">Upload <code>credentials.json</code> to <code>/app/data/auth/</code> on the server first.</p>
                         <div class="action-row">
                             <button class="btn btn-secondary" onclick="getGDriveAuthUrl()">Get Auth URL</button>
+                            <button type="button" class="btn btn-secondary" onclick="getGDriveAuthUrl()">Get Auth URL</button>
                         </div>
                         <div id="gdrive-auth-url-box" style="display:none;">
                             <p>Open this link and authorize:</p>
                             <a id="gdrive-auth-link" href="#" target="_blank" class="auth-link">Click to authorize</a>
                             <div class="input-group" style="margin-top:0.75rem;">
-                                <label for="gdrive-auth-code">Paste Authorization Code</label>
-                                <input type="text" id="gdrive-auth-code" placeholder="Paste the code from Google here...">
+                                <label>Paste Google Auth Code</label>
+                                <input type="text" id="gdrive-code" placeholder="4/1AX4XfW...">
+                                <button type="button" class="btn btn-primary" onclick="submitGDriveCode()">Submit Code</button>
                             </div>
-                            <button class="btn btn-primary" onclick="submitGDriveCode()">Submit Code</button>
                         </div>
                         <div class="input-group" style="margin-top:1rem;">
                             <label>GDrive Folder ID (Transcripts)</label>
                             <div class="settings-field-group">
                                 <input type="text" id="gdrive-folder-id" placeholder="Paste your Google Drive folder ID..." onchange="saveSettings()" disabled>
-                                <button class="btn btn-secondary btn-small" id="btn-edit-gdrive-transcripts" onclick="toggleEdit('gdrive-folder-id', 'btn-edit-gdrive-transcripts')">Edit</button>
+                                <button type="button" class="btn btn-secondary btn-small" id="btn-edit-gdrive-transcripts" onclick="toggleEdit('gdrive-folder-id', 'btn-edit-gdrive-transcripts')">Edit</button>
                             </div>
                         </div>
-                        <button class="btn btn-secondary" onclick="uploadToGDrive()">Upload to GDrive</button>
+                        <button type="button" class="btn btn-secondary" onclick="uploadToGDrive()">Upload to GDrive</button>
                     </div>
                 </details>
                 <div class="log-console" id="log-transcriber"></div>
@@ -128,7 +129,7 @@
                     <p class="block-subtitle">Paste AI JSON → Cut → Remove Silence → Render → Reframe 1:1</p>
                 </div>
                 <div class="block-controls">
-                    <button class="btn btn-stop" onclick="stopBlock('clipprocessor')" title="Stop">
+                    <button type="button" class="btn btn-stop" onclick="stopBlock('clipprocessor')" title="Stop">
                         <svg viewBox="0 0 20 20" fill="currentColor"><rect x="5" y="5" width="10" height="10" rx="1.5"/></svg>
                     </button>
                 </div>
@@ -150,17 +151,13 @@
 ]'></textarea>
                 </div>
                 <div class="action-row">
-                    <button class="btn btn-secondary" onclick="validateJSON()">
+                    <button type="button" class="btn btn-secondary" onclick="validateJSON()">
                         <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                         Validate JSON
                     </button>
-                    <button class="btn btn-primary" id="btn-process" onclick="processClips()">
-                        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
-                        Execute Clips
-                    </button>
-                    <button class="btn btn-accent" id="btn-reframe" onclick="reframeAll()">
-                        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M4 3a1 1 0 00-1 1v4a1 1 0 002 0V5h3a1 1 0 000-2H4zM16 3a1 1 0 00-1 1h-3a1 1 0 100 2h3v3a1 1 0 102 0V4a1 1 0 00-1-1zM4 17a1 1 0 001-1v-3a1 1 0 10-2 0v3h-3a1 1 0 100 2h4zm12 0a1 1 0 001-1h3a1 1 0 100-2h-3v-3a1 1 0 10-2 0v4a1 1 0 001 1z"/></svg>
-                        Reframe 1:1
+                    <button type="button" class="btn btn-primary" id="btn-process" onclick="startProcessing()">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Process & Reframe to 1:1
                     </button>
                 </div>
                 <div id="json-status" class="json-status"></div>
@@ -172,10 +169,10 @@
                             <label>GDrive Folder ID for Clips</label>
                             <div class="settings-field-group">
                                 <input type="text" id="gdrive-clips-folder" placeholder="Folder ID..." onchange="saveSettings()" disabled>
-                                <button class="btn btn-secondary btn-small" id="btn-edit-gdrive-clips" onclick="toggleEdit('gdrive-clips-folder', 'btn-edit-gdrive-clips')">Edit</button>
+                                <button type="button" class="btn btn-secondary btn-small" id="btn-edit-gdrive-clips" onclick="toggleEdit('gdrive-clips-folder', 'btn-edit-gdrive-clips')">Edit</button>
                             </div>
                         </div>
-                        <button class="btn btn-secondary" onclick="uploadClipsToGDrive()">Upload All Clips</button>
+                        <button type="button" class="btn btn-secondary" onclick="uploadClipsToGDrive()">Upload All Clips</button>
                     </div>
                 </details>
                 <div class="log-console" id="log-clipprocessor"></div>
@@ -191,8 +188,8 @@
                     <p class="block-subtitle">Preview and download your processed clips</p>
                 </div>
                 <div class="block-controls">
-                    <button class="btn btn-secondary" onclick="refreshGallery()">
-                        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+                    <button type="button" class="btn btn-secondary" onclick="refreshGallery()">
+                        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 11-2 0h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
                         Refresh
                     </button>
                 </div>
@@ -206,7 +203,7 @@
 
         <!-- ═══ DANGER ZONE ═══ -->
         <section class="danger-zone">
-            <button class="btn btn-danger" onclick="clearAllData()">
+            <button type="button" class="btn btn-danger" onclick="clearAllData()">
                 <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
                 Delete All Files & Cache
             </button>
