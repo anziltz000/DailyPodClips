@@ -1,47 +1,39 @@
 /* ═══════════════════════════════════════════════════════════
    DailyPodClips — Frontend JavaScript
-   SSE log streaming, API calls, gallery management
+   SSE log streaming, API calls, gallery management, Projects
    ═══════════════════════════════════════════════════════════ */
+
+let currentProjectId = localStorage.getItem('currentProjectId') || null;
+let projectToRename = null;
 
 // ── SSE Log Connections ──────────────────────────────────────
 const sseConnections = {};
 
-/**
- * Connect to the SSE endpoint for a block and stream logs into its console.
- */
 function connectSSE(blockId) {
-    // Close existing connection if any
     if (sseConnections[blockId]) {
         sseConnections[blockId].close();
     }
-
     const logEl = document.getElementById(`log-${blockId}`);
-    const evtSource = new EventSource(`/api/logs/${blockId}`);
+    const pid = currentProjectId || 'default';
+    const evtSource = new EventSource(`/api/logs/${pid}/${blockId}`);
 
     evtSource.addEventListener('log', (e) => {
         appendLog(logEl, e.data);
     });
 
-    evtSource.addEventListener('ping', () => {
-        // keepalive — do nothing
-    });
+    evtSource.addEventListener('ping', () => {});
 
     evtSource.onerror = () => {
-        // Auto-reconnect is built into EventSource
         console.warn(`SSE reconnecting for ${blockId}...`);
     };
 
     sseConnections[blockId] = evtSource;
 }
 
-/**
- * Append a log line to a console element with auto-scroll and color coding.
- */
 function appendLog(logEl, text) {
     const line = document.createElement('span');
     line.className = 'log-line';
 
-    // Color code based on content
     if (text.startsWith('❌') || text.startsWith('⚠')) {
         line.classList.add(text.startsWith('❌') ? 'error' : 'warn');
     } else if (text.startsWith('✅') || text.startsWith('🎉')) {
@@ -51,44 +43,50 @@ function appendLog(logEl, text) {
     line.textContent = text + '\n';
     logEl.appendChild(line);
 
-    // Auto-scroll to bottom
-    logEl.scrollTop = logEl.scrollHeight;
+    const blockId = logEl.id.replace('log-', '');
+    const checkbox = document.getElementById(`autoscroll-${blockId}`);
+    if (checkbox && checkbox.checked) {
+        logEl.scrollTop = logEl.scrollHeight;
+    }
 }
 
-/**
- * Clear a log console.
- */
 function clearLog(blockId) {
     const logEl = document.getElementById(`log-${blockId}`);
     if (logEl) logEl.innerHTML = '';
 }
 
 // ── API Helpers ──────────────────────────────────────────────
-async function apiPost(url, body = {}) {
+async function apiPost(url, body = {}, method = 'POST') {
+    const headers = { 'Content-Type': 'application/json' };
+    if (currentProjectId) headers['X-Project-Id'] = currentProjectId;
     const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: method,
+        headers: headers,
         body: JSON.stringify(body),
     });
     const data = await res.json();
-    if (!res.ok) {
-        throw new Error(data.detail || `Request failed (${res.status})`);
-    }
+    if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
     return data;
 }
 
 async function apiGet(url) {
-    const res = await fetch(url);
+    const headers = {};
+    if (currentProjectId) headers['X-Project-Id'] = currentProjectId;
+    const res = await fetch(url, { headers });
     const data = await res.json();
-    if (!res.ok) {
-        throw new Error(data.detail || `Request failed (${res.status})`);
-    }
+    if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
     return data;
 }
 
-/**
- * Set a button to loading state.
- */
+async function apiDelete(url) {
+    const headers = {};
+    if (currentProjectId) headers['X-Project-Id'] = currentProjectId;
+    const res = await fetch(url, { method: 'DELETE', headers });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+    return data;
+}
+
 function setLoading(btnId, loading) {
     const btn = document.getElementById(btnId);
     if (!btn) return;
@@ -101,9 +99,6 @@ function setLoading(btnId, loading) {
     }
 }
 
-/**
- * Update the header status indicator.
- */
 function setStatus(text, busy = false) {
     const dot = document.getElementById('status-dot');
     const txt = document.getElementById('status-text');
@@ -111,35 +106,127 @@ function setStatus(text, busy = false) {
     txt.textContent = text;
 }
 
-/**
- * Send a browser notification if permission is granted.
- */
 function notifyUser(title, body) {
     try {
         if ("Notification" in window && Notification.permission === "granted") {
             new Notification(title, { body, icon: '/static/favicon.png' });
         }
+    } catch (err) {}
+}
+
+// ── PROJECTS ─────────────────────────────────────────────────
+async function loadProjects() {
+    try {
+        const res = await apiGet('/api/projects');
+        const list = document.getElementById('project-list');
+        if (res.projects.length === 0) {
+            list.innerHTML = '<p class="empty-state">No projects found. Create one!</p>';
+            if (!currentProjectId) document.getElementById('project-modal').showModal();
+            return;
+        }
+        
+        if (currentProjectId && !res.projects.find(p => p.id === currentProjectId)) {
+            currentProjectId = res.projects[0].id;
+            localStorage.setItem('currentProjectId', currentProjectId);
+        } else if (!currentProjectId && res.projects.length > 0) {
+            currentProjectId = res.projects[0].id;
+            localStorage.setItem('currentProjectId', currentProjectId);
+        }
+
+        list.innerHTML = res.projects.map(p => `
+            <div class="project-item" onclick="selectProject('${p.id}', '${escapeHtml(p.name)}')">
+                <div class="project-item-info">
+                    <strong>${p.id === currentProjectId ? '✅ ' : ''}${escapeHtml(p.name)}</strong>
+                    <span>Created: ${new Date(p.created_at * 1000).toLocaleDateString()}</span>
+                </div>
+                <div class="project-item-actions">
+                    <button type="button" class="btn btn-secondary btn-small" onclick="event.stopPropagation(); openRenameModal('${p.id}', '${escapeHtml(p.name)}')">✏️</button>
+                    <button type="button" class="btn btn-danger btn-small" onclick="event.stopPropagation(); doDeleteProject('${p.id}')">🗑️</button>
+                </div>
+            </div>
+        `).join('');
+
+        const curr = res.projects.find(p => p.id === currentProjectId);
+        if (curr) {
+            document.getElementById('current-project-name').textContent = curr.name;
+        }
+
+        if (!currentProjectId) {
+            document.getElementById('project-modal').showModal();
+        }
     } catch (err) {
-        console.warn("Notification error:", err);
+        console.error("Failed to load projects", err);
+    }
+}
+
+function openProjectModal() {
+    loadProjects();
+    document.getElementById('project-modal').showModal();
+}
+
+async function createProject() {
+    const name = document.getElementById('new-project-name').value.trim();
+    if (!name) return;
+    try {
+        const res = await apiPost('/api/projects', { name });
+        document.getElementById('new-project-name').value = '';
+        selectProject(res.id, res.name);
+    } catch (e) {
+        alert(e.message);
+    }
+}
+
+function selectProject(id, name) {
+    currentProjectId = id;
+    localStorage.setItem('currentProjectId', id);
+    document.getElementById('current-project-name').textContent = name;
+    document.getElementById('project-modal').close();
+    
+    // Reconnect SSE & refresh state
+    ['downloader', 'transcriber', 'clipprocessor'].forEach(clearLog);
+    ['downloader', 'transcriber', 'clipprocessor'].forEach(connectSSE);
+    refreshGallery();
+    loadStatus();
+}
+
+function openRenameModal(id, currentName) {
+    projectToRename = id;
+    document.getElementById('rename-project-name').value = currentName;
+    document.getElementById('rename-modal').showModal();
+}
+
+async function submitRenameProject() {
+    const name = document.getElementById('rename-project-name').value.trim();
+    if (!name || !projectToRename) return;
+    try {
+        await apiPost(`/api/projects/${projectToRename}`, { name }, 'PUT');
+        document.getElementById('rename-modal').close();
+        loadProjects();
+    } catch(e) {
+        alert(e.message);
+    }
+}
+
+async function doDeleteProject(id) {
+    if (!confirm("Are you sure you want to delete this project and all its files?")) return;
+    try {
+        await apiDelete(`/api/projects/${id}`);
+        if (currentProjectId === id) {
+            currentProjectId = null;
+            localStorage.removeItem('currentProjectId');
+            document.getElementById('current-project-name').textContent = "No Project Selected";
+        }
+        loadProjects();
+    } catch(e) {
+        alert(e.message);
     }
 }
 
 // ── BLOCK 1: DOWNLOADER ──────────────────────────────────────
 async function startDownload() {
-    try {
-        if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
-            Notification.requestPermission().catch(e => console.warn(e));
-        }
-    } catch (e) {
-        console.warn(e);
-    }
-    
+    if (!currentProjectId) return alert("Select a project first!");
     const url = document.getElementById('download-url').value.trim();
-    if (!url) {
-        alert('Please enter a video URL');
-        return;
-    }
-
+    if (!url) return alert('Please enter a video URL');
     const cookies = document.getElementById('download-cookies').value.trim();
 
     clearLog('downloader');
@@ -150,6 +237,7 @@ async function startDownload() {
         const result = await apiPost('/api/download', { url, cookies: cookies || null });
         setStatus(`Downloaded: ${result.filename}`);
         notifyUser('Download Complete', result.filename);
+        loadStatus();
     } catch (err) {
         setStatus('Download failed');
         appendLog(document.getElementById('log-downloader'), `❌ Error: ${err.message}`);
@@ -161,6 +249,7 @@ async function startDownload() {
 
 // ── BLOCK 2: TRANSCRIBER ─────────────────────────────────────
 async function startTranscribe() {
+    if (!currentProjectId) return alert("Select a project first!");
     clearLog('transcriber');
     setLoading('btn-transcribe', true);
     setStatus('Transcribing...', true);
@@ -168,13 +257,12 @@ async function startTranscribe() {
     try {
         const result = await apiPost('/api/transcribe');
         setStatus(`Transcribed: ${result.filename}`);
-
-        // Show transcript preview
         const previewEl = document.getElementById('transcript-preview');
         const contentEl = document.getElementById('transcript-content');
         previewEl.style.display = 'block';
         contentEl.textContent = result.transcript;
-        notifyUser('Transcription Complete', 'Transcript ready for processing.');
+        notifyUser('Transcription Complete', 'Transcript ready.');
+        loadStatus();
     } catch (err) {
         setStatus('Transcription failed');
         appendLog(document.getElementById('log-transcriber'), `❌ Error: ${err.message}`);
@@ -184,7 +272,7 @@ async function startTranscribe() {
     }
 }
 
-// ── BLOCK 2: GDRIVE AUTH ─────────────────────────────────────
+// ── GDRIVE AUTH ──────────────────────────────────────────────
 async function getGDriveAuthUrl() {
     try {
         const result = await apiGet('/api/gdrive/auth-url');
@@ -199,12 +287,8 @@ async function getGDriveAuthUrl() {
 }
 
 async function submitGDriveCode() {
-    const code = document.getElementById('gdrive-auth-code').value.trim();
-    if (!code) {
-        alert('Please paste the authorization code');
-        return;
-    }
-
+    const code = document.getElementById('gdrive-code').value.trim();
+    if (!code) return alert('Please paste the authorization code');
     try {
         await apiPost('/api/gdrive/auth-code', { code });
         alert('✅ Google Drive authenticated successfully!');
@@ -216,11 +300,7 @@ async function submitGDriveCode() {
 
 async function uploadToGDrive() {
     const folderId = document.getElementById('gdrive-folder-id').value.trim();
-    if (!folderId) {
-        alert('Please enter a Google Drive folder ID');
-        return;
-    }
-
+    if (!folderId) return alert('Please enter a Google Drive folder ID');
     setStatus('Uploading to GDrive...', true);
     try {
         const result = await apiPost('/api/gdrive/upload', { folder_id: folderId });
@@ -234,11 +314,7 @@ async function uploadToGDrive() {
 
 async function uploadClipsToGDrive() {
     const folderId = document.getElementById('gdrive-clips-folder').value.trim();
-    if (!folderId) {
-        alert('Please enter a Google Drive folder ID');
-        return;
-    }
-
+    if (!folderId) return alert('Please enter a Google Drive folder ID');
     setStatus('Uploading clips to GDrive...', true);
     try {
         const result = await apiPost('/api/gdrive/upload', { folder_id: folderId });
@@ -259,7 +335,6 @@ function validateJSON() {
         statusEl.className = 'json-status invalid';
         statusEl.textContent = '❌ JSON field is empty';
         statusEl.style.display = 'block';
-        alert('JSON field is empty. Please paste the AI output first.');
         return false;
     }
 
@@ -281,22 +356,13 @@ function validateJSON() {
         statusEl.className = 'json-status invalid';
         statusEl.textContent = `❌ ${err.message}`;
         statusEl.style.display = 'block';
-        alert(`JSON Validation Error:\n${err.message}`);
         return false;
     }
 }
 
 async function startProcessing() {
-    try {
-        if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
-            Notification.requestPermission().catch(e => console.warn(e));
-        }
-    } catch (e) {
-        console.warn(e);
-    }
-    
+    if (!currentProjectId) return alert("Select a project first!");
     if (!validateJSON()) return;
-    
     const jsonText = document.getElementById('clip-json').value.trim();
 
     clearLog('clipprocessor');
@@ -307,8 +373,8 @@ async function startProcessing() {
         const result = await apiPost('/api/process-clips', { json_data: jsonText });
         setStatus(`Processed ${result.clips.length} clips`);
         notifyUser('Processing Complete', `Successfully processed ${result.clips.length} clips.`);
-        // Auto-refresh gallery
-        await refreshGallery();
+        refreshGallery();
+        loadStatus();
     } catch (err) {
         setStatus('Processing failed');
         appendLog(document.getElementById('log-clipprocessor'), `❌ Error: ${err.message}`);
@@ -318,8 +384,9 @@ async function startProcessing() {
     }
 }
 
-// ── BLOCK: STOP ──────────────────────────────────────────────
+// ── STOP ─────────────────────────────────────────────────────
 async function stopBlock(blockId) {
+    if (!currentProjectId) return;
     try {
         await apiPost(`/api/stop/${blockId}`);
     } catch (err) {
@@ -327,13 +394,12 @@ async function stopBlock(blockId) {
     }
 }
 
-// ── BLOCK 4: GALLERY ─────────────────────────────────────────
+// ── GALLERY ──────────────────────────────────────────────────
 async function refreshGallery() {
+    if (!currentProjectId) return;
     const grid = document.getElementById('gallery-grid');
-
     try {
         const result = await apiGet('/api/clips');
-
         if (!result.clips || result.clips.length === 0) {
             grid.innerHTML = '<p class="empty-state">No clips yet. Process some clips first!</p>';
             return;
@@ -349,7 +415,7 @@ async function refreshGallery() {
             const meta = clip.metadata || {};
             return `
             <div class="gallery-card">
-                <video src="${clip.url}?v=${Date.now()}" controls preload="metadata" playsinline></video>
+                <video src="${clip.url}&v=${Date.now()}" controls preload="metadata" playsinline></video>
                 <div class="gallery-card-info">
                     <h4>${escapeHtml(clip.filename)}</h4>
                     ${meta.virality_score ? `<div class="score">Virality Score: <strong>${escapeHtml(meta.virality_score.toString())}/100</strong></div>` : ''}
@@ -379,19 +445,16 @@ async function refreshGallery() {
 
 // ── DANGER ZONE ──────────────────────────────────────────────
 async function clearAllData() {
-    if (!confirm('⚠️ This will delete ALL downloaded videos, processed clips, transcripts, and temp files. Are you sure?')) {
+    if (!currentProjectId) return;
+    if (!confirm('⚠️ This will delete ALL downloaded videos, processed clips, transcripts, and temp files for this project. Are you sure?')) {
         return;
     }
-
     try {
         const result = await apiPost('/api/clear-all');
         alert(`✅ Deleted ${result.deleted} files`);
-        // Clear all log consoles
         ['downloader', 'transcriber', 'clipprocessor'].forEach(clearLog);
-        // Clear transcript preview
         document.getElementById('transcript-preview').style.display = 'none';
-        // Refresh gallery
-        await refreshGallery();
+        refreshGallery();
         setStatus('Idle');
     } catch (err) {
         alert(`Error: ${err.message}`);
@@ -421,17 +484,7 @@ async function saveSettings() {
             gdrive_folder_transcripts: gdrive_folder_transcripts || null,
             gdrive_folder_clips: gdrive_folder_clips || null
         });
-        console.log('Settings saved automatically.');
-    } catch (err) {
-        console.error('Failed to save settings:', err);
-    }
-}
-
-// ── Utils ────────────────────────────────────────────────────
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    } catch (err) {}
 }
 
 function toggleEdit(inputId, btnId) {
@@ -448,35 +501,49 @@ function toggleEdit(inputId, btnId) {
     }
 }
 
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// ── STATUS SYNC ──────────────────────────────────────────────
+async function loadStatus() {
+    if (!currentProjectId) return;
+    try {
+        const status = await apiGet('/api/status');
+        if (status.current_video) {
+            setStatus(`Loaded: ${status.current_video}`);
+        } else {
+            setStatus('Idle');
+        }
+        
+        // Sync button loading states
+        setLoading('btn-download', status.active_processes.includes('downloader'));
+        setLoading('btn-transcribe', status.active_processes.includes('transcriber'));
+        setLoading('btn-process', status.active_processes.includes('clipprocessor'));
+    } catch(e) {
+        setStatus('Server offline', true);
+    }
+}
+
 // ── Initialize ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-    // Request notification permission safely
     try {
         if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
             Notification.requestPermission().catch(e => console.warn(e));
         }
-    } catch (e) {
-        console.warn("Notifications init error:", e);
-    }
+    } catch (e) {}
 
-    // Connect SSE for all blocks
-    ['downloader', 'transcriber', 'clipprocessor'].forEach(connectSSE);
-
-    // Load gallery on startup
-    refreshGallery();
-
-    // Load persistent settings
-    loadSettings();
-
-    // Check server status
-    apiGet('/api/status').then(status => {
-        if (status.current_video) {
-            setStatus(`Loaded: ${status.current_video}`);
+    loadProjects().then(() => {
+        if (currentProjectId) {
+            ['downloader', 'transcriber', 'clipprocessor'].forEach(connectSSE);
+            refreshGallery();
+            loadSettings();
+            loadStatus();
         }
-        if (status.gdrive_authenticated) {
-            console.log('GDrive: authenticated');
-        }
-    }).catch(() => {
-        setStatus('Server offline', true);
     });
+
+    // Auto-sync status every 5 seconds
+    setInterval(loadStatus, 5000);
 });

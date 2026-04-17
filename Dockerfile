@@ -21,15 +21,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Install Node.js (required by yt-dlp for YouTube JS challenge solver) ──
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && node --version
-
-# ── Install yt-dlp (latest binary — works on ARM64) ─────────
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
-    && chmod a+rx /usr/local/bin/yt-dlp
+# ── Install Deno (required by yt-dlp for YouTube JS challenge solver) ──
+RUN apt-get update && apt-get install -y unzip && \
+    curl -fsSL https://deno.land/install.sh | sh && \
+    mv /root/.deno/bin/deno /usr/local/bin/deno && \
+    deno --version
 
 WORKDIR /app
 

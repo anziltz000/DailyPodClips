@@ -400,6 +400,26 @@ textarea#clip-json {
 }
 
 /* ── Log Console ────────────────────────────────────────── */
+.log-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.log-controls {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.log-controls label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    cursor: pointer;
+}
+
 .log-console {
     background: var(--bg-console);
     border: 1px solid var(--border);
@@ -651,6 +671,82 @@ details[open] summary { border-bottom: 1px solid var(--border); }
     padding: 1.5rem;
     border-top: 1px solid rgba(239, 68, 68, 0.15);
     margin-top: 1rem;
+}
+
+/* ── Modals & Projects ──────────────────────────────────── */
+.modal {
+    margin: auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    color: var(--text-primary);
+    padding: 0;
+    max-width: 500px;
+    width: 90%;
+}
+.modal::backdrop {
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+}
+.modal-content {
+    padding: 1.5rem;
+}
+.modal-content h2 {
+    font-size: 1.2rem;
+    margin-bottom: 1rem;
+}
+.project-list {
+    max-height: 300px;
+    overflow-y: auto;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.project-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-surface);
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background var(--duration) var(--ease);
+}
+.project-item:hover {
+    background: var(--bg-card-hover);
+    border-color: rgba(99, 102, 241, 0.3);
+}
+.project-item-info strong {
+    display: block;
+    font-size: 0.9rem;
+}
+.project-item-info span {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+.project-item-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+.project-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+.project-badge {
+    font-size: 0.7rem;
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--text-accent);
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    display: inline-block;
+    margin-top: 0.2rem;
+    cursor: pointer;
+}
+.project-badge:hover {
+    background: rgba(99, 102, 241, 0.25);
 }
 
 /* ── Responsive ─────────────────────────────────────────── */

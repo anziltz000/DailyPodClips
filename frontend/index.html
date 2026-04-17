@@ -12,14 +12,42 @@
     <link rel="icon" type="image/png" href="/static/favicon.png">
 </head>
 <body>
+    <!-- ═══ PROJECT MODAL ═══ -->
+    <dialog id="project-modal" class="modal">
+        <div class="modal-content">
+            <h2>Select or Create Project</h2>
+            <div class="project-list" id="project-list">
+                <!-- Populated by JS -->
+            </div>
+            <div class="project-actions">
+                <input type="text" id="new-project-name" placeholder="New project name..." autocomplete="off">
+                <button type="button" class="btn btn-primary" onclick="createProject()">Create Project</button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- ═══ RENAME MODAL ═══ -->
+    <dialog id="rename-modal" class="modal">
+        <div class="modal-content">
+            <h2>Rename Project</h2>
+            <div class="project-actions" style="margin-top: 1rem;">
+                <input type="text" id="rename-project-name" placeholder="New name..." autocomplete="off">
+                <button type="button" class="btn btn-primary" onclick="submitRenameProject()">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('rename-modal').close()">Cancel</button>
+            </div>
+        </div>
+    </dialog>
     <!-- ═══ HEADER ═══ -->
     <header id="app-header">
         <div class="header-inner">
             <div class="logo">
-                <div class="logo-icon">
+                <div class="logo-icon" onclick="openProjectModal()" style="cursor:pointer;" title="Switch Project">
                     <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="url(#gLogo)" stroke-width="2.5"/><path d="M12 20V12l8 4-8 4z" fill="url(#gLogo)"/><defs><linearGradient id="gLogo" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#a855f7"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs></svg>
                 </div>
-                <h1>DailyPod<span class="accent">Clips</span></h1>
+                <div>
+                    <h1>DailyPod<span class="accent">Clips</span></h1>
+                    <div id="current-project-name" class="project-badge" onclick="openProjectModal()">No Project Selected</div>
+                </div>
             </div>
             <div class="header-status">
                 <span id="status-dot" class="status-dot"></span>
@@ -58,7 +86,12 @@
                         Download
                     </button>
                 </div>
-                <div class="log-console" id="log-downloader"></div>
+                <div class="log-container">
+                    <div class="log-controls">
+                        <label><input type="checkbox" id="autoscroll-downloader" checked> Auto-scroll</label>
+                    </div>
+                    <div class="log-console" id="log-downloader"></div>
+                </div>
             </div>
         </section>
 
@@ -116,7 +149,12 @@
                         <button type="button" class="btn btn-secondary" onclick="uploadToGDrive()">Upload to GDrive</button>
                     </div>
                 </details>
-                <div class="log-console" id="log-transcriber"></div>
+                <div class="log-container" style="margin-top:1rem;">
+                    <div class="log-controls">
+                        <label><input type="checkbox" id="autoscroll-transcriber" checked> Auto-scroll</label>
+                    </div>
+                    <div class="log-console" id="log-transcriber"></div>
+                </div>
             </div>
         </section>
 
@@ -182,7 +220,12 @@
                         <button type="button" class="btn btn-secondary" onclick="uploadClipsToGDrive()">Upload All Clips</button>
                     </div>
                 </details>
-                <div class="log-console" id="log-clipprocessor"></div>
+                <div class="log-container" style="margin-top:1rem;">
+                    <div class="log-controls">
+                        <label><input type="checkbox" id="autoscroll-clipprocessor" checked> Auto-scroll</label>
+                    </div>
+                    <div class="log-console" id="log-clipprocessor"></div>
+                </div>
             </div>
         </section>
 

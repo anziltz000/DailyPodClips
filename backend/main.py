@@ -15,21 +15,26 @@ import uuid
 from pathlib import Path
 from typing import Dict, Optional
 
+import psutil
 import aiofiles
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 
 from backend.config import (
-    DATA_DIR, DOWNLOADS_DIR, PROCESSED_DIR, TRANSCRIPTS_DIR, TEMP_DIR,
-    AUTH_DIR, COOKIES_DIR, GOOGLE_CREDENTIALS_FILE, GOOGLE_TOKEN_FILE,
+    DATA_DIR, AUTH_DIR, COOKIES_DIR, GOOGLE_CREDENTIALS_FILE, GOOGLE_TOKEN_FILE,
     GOOGLE_SCOPES, WHISPER_MODEL, WHISPER_COMPUTE_TYPE, WHISPER_BEAM_SIZE,
     WHISPER_DEVICE, FFMPEG_VIDEO_CODEC, FFMPEG_VIDEO_PRESET, FFMPEG_VIDEO_CRF,
     FFMPEG_VIDEO_PROFILE, FFMPEG_VIDEO_LEVEL, FFMPEG_PIXEL_FORMAT,
     FFMPEG_AUDIO_CODEC, FFMPEG_AUDIO_BITRATE, FFMPEG_AUDIO_SAMPLE_RATE,
     FACE_TRACK_FPS, FACE_TRACK_SMOOTHING, FACE_TRACK_MIN_CONFIDENCE,
+)
+
+from backend.projects import (
+    init_projects, load_projects, create_project, rename_project,
+    delete_project, cleanup_old_projects, get_project_dir
 )
 
 # -- Persistent settings --
@@ -47,14 +52,25 @@ def save_settings(settings: dict):
     SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
 
 # -- App Setup --
-app = FastAPI(title="DailyPodClips", version="1.0.0")
+app = FastAPI(title="DailyPodClips", version="1.1.0")
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 # -- Global State --
-active_processes: Dict[str, subprocess.Popen] = {}
-log_subscribers: Dict[str, list] = {}
-current_video: Optional[str] = None
-current_transcript: Optional[str] = None
+init_projects()
+# project_id -> {"active_processes": {}, "log_subscribers": {}, "current_video": None, "current_transcript": None}
+project_state = {}
+
+def get_pstate(pid: str):
+    if not pid:
+        pid = "default"
+    if pid not in project_state:
+        project_state[pid] = {
+            "active_processes": {},
+            "log_subscribers": {},
+            "current_video": None,
+            "current_transcript": None,
+        }
+    return project_state[pid]
 
 # -- Pydantic Models --
 class DownloadRequest(BaseModel):
@@ -78,15 +94,28 @@ class SettingsUpdate(BaseModel):
     gdrive_folder_transcripts: Optional[str] = None
     gdrive_folder_clips: Optional[str] = None
 
+class ProjectCreate(BaseModel):
+    name: str
+
+class ProjectRename(BaseModel):
+    name: str
+
+# Dependency to extract project ID
+def get_project_id(x_project_id: Optional[str] = Header(None)):
+    if not x_project_id:
+        return "default"
+    return x_project_id
+
 # -- SSE Helpers --
-async def broadcast_log(block_id: str, message: str):
-    if block_id not in log_subscribers:
-        log_subscribers[block_id] = []
-    for queue in log_subscribers[block_id]:
+async def broadcast_log(project_id: str, block_id: str, message: str):
+    state = get_pstate(project_id)
+    if block_id not in state["log_subscribers"]:
+        state["log_subscribers"][block_id] = []
+    for queue in state["log_subscribers"][block_id]:
         await queue.put(message)
 
-async def run_subprocess_with_logs(block_id: str, cmd: list, cwd: str = None, env: dict = None) -> int:
-    await broadcast_log(block_id, f">> {' '.join(cmd[:6])}...")
+async def run_subprocess_with_logs(project_id: str, block_id: str, cmd: list, cwd: str = None, env: dict = None) -> int:
+    await broadcast_log(project_id, block_id, f">> {' '.join(cmd[:6])}...")
     merged_env = {**os.environ, **(env or {})}
     process = await asyncio.create_subprocess_exec(
         *cmd,
@@ -95,31 +124,64 @@ async def run_subprocess_with_logs(block_id: str, cmd: list, cwd: str = None, en
         cwd=cwd,
         env=merged_env,
     )
-    active_processes[block_id] = process
+    get_pstate(project_id)["active_processes"][block_id] = process
 
     async def stream_pipe(pipe, prefix=""):
         async for line in pipe:
             text = line.decode("utf-8", errors="replace").rstrip()
             if text:
-                await broadcast_log(block_id, f"{prefix}{text}")
+                await broadcast_log(project_id, block_id, f"{prefix}{text}")
 
     await asyncio.gather(
         stream_pipe(process.stdout),
         stream_pipe(process.stderr, "[stderr] "),
     )
     await process.wait()
-    active_processes.pop(block_id, None)
+    get_pstate(project_id)["active_processes"].pop(block_id, None)
     status = "DONE" if process.returncode == 0 else f"FAILED (code {process.returncode})"
-    await broadcast_log(block_id, status)
+    await broadcast_log(project_id, block_id, status)
     return process.returncode
 
+# -- PROJECTS API --
+@app.get("/api/projects")
+async def api_list_projects():
+    cleanup_old_projects(15)
+    return {"projects": load_projects()}
+
+@app.post("/api/projects")
+async def api_create_project(req: ProjectCreate):
+    return create_project(req.name)
+
+@app.put("/api/projects/{pid}")
+async def api_rename_project(pid: str, req: ProjectRename):
+    rename_project(pid, req.name)
+    return {"status": "ok"}
+
+@app.delete("/api/projects/{pid}")
+async def api_delete_project(pid: str):
+    delete_project(pid)
+    # Stop active processes
+    state = get_pstate(pid)
+    for block_id, proc in state["active_processes"].items():
+        if proc.returncode is None:
+            try:
+                parent = psutil.Process(proc.pid)
+                for child in parent.children(recursive=True):
+                    child.kill()
+                parent.kill()
+            except Exception:
+                pass
+    project_state.pop(pid, None)
+    return {"status": "ok"}
+
 # -- SSE Endpoint --
-@app.get("/api/logs/{block_id}")
-async def stream_logs(block_id: str, request: Request):
+@app.get("/api/logs/{project_id}/{block_id}")
+async def stream_logs(project_id: str, block_id: str, request: Request):
     queue = asyncio.Queue()
-    if block_id not in log_subscribers:
-        log_subscribers[block_id] = []
-    log_subscribers[block_id].append(queue)
+    state = get_pstate(project_id)
+    if block_id not in state["log_subscribers"]:
+        state["log_subscribers"][block_id] = []
+    state["log_subscribers"][block_id].append(queue)
 
     async def event_generator():
         try:
@@ -132,7 +194,8 @@ async def stream_logs(block_id: str, request: Request):
                 except asyncio.TimeoutError:
                     yield {"event": "ping", "data": "keepalive"}
         finally:
-            log_subscribers[block_id].remove(queue)
+            if queue in state["log_subscribers"].get(block_id, []):
+                state["log_subscribers"][block_id].remove(queue)
 
     return EventSourceResponse(event_generator())
 
@@ -156,16 +219,15 @@ async def update_settings(req: SettingsUpdate):
 
 # -- BLOCK 1: DOWNLOADER --
 @app.post("/api/download")
-async def download_video(req: DownloadRequest):
-    global current_video
+async def download_video(req: DownloadRequest, project_id: str = Depends(get_project_id)):
     block_id = "downloader"
     url = req.url.strip()
     if not url:
         raise HTTPException(400, "URL is required")
 
-    await broadcast_log(block_id, f"Starting download: {url}")
+    downloads_dir = get_project_dir(project_id, "downloads")
+    await broadcast_log(project_id, block_id, f"Starting download: {url}")
 
-    # Use saved cookies or from request
     settings = load_settings()
     cookie_path = str(COOKIES_DIR / "cookies.txt")
     if req.cookies and req.cookies.strip():
@@ -173,9 +235,9 @@ async def download_video(req: DownloadRequest):
             await f.write(req.cookies)
         settings["cookies"] = req.cookies
         save_settings(settings)
-        await broadcast_log(block_id, "Cookies saved (persistent)")
+        await broadcast_log(project_id, block_id, "Cookies saved")
     elif (COOKIES_DIR / "cookies.txt").exists():
-        await broadcast_log(block_id, "Using saved cookies")
+        await broadcast_log(project_id, block_id, "Using saved cookies")
     else:
         cookie_path = None
 
@@ -183,59 +245,64 @@ async def download_video(req: DownloadRequest):
 
     if is_direct_link:
         filename = url.split("/")[-1].split("?")[0]
-        cmd = ["aria2c", "-x", "16", "-s", "16", "--max-connection-per-server=16",
-               "-d", str(DOWNLOADS_DIR), "-o", filename, url]
+        cmd = ["wget", "-c", "-O", str(downloads_dir / filename), url]
     else:
         cmd = ["yt-dlp",
                "-f", "bv*[height<=1080]+ba/b[height<=1080]/bv+ba/b",
                "--merge-output-format", "mp4", "--remux-video", "mp4",
-               "-o", str(DOWNLOADS_DIR / "%(title)s.%(ext)s"),
+               "-o", str(downloads_dir / "%(title)s.%(ext)s"),
                "--no-playlist", "--progress", "--newline",
                "--retries", "3", "--fragment-retries", "3"]
         if cookie_path:
             cmd.extend(["--cookies", cookie_path])
         cmd.append(url)
 
-    returncode = await run_subprocess_with_logs(block_id, cmd)
+    returncode = await run_subprocess_with_logs(project_id, block_id, cmd)
     if returncode != 0:
         raise HTTPException(500, "Download failed")
 
-    mp4_files = sorted(DOWNLOADS_DIR.glob("*.mp4"), key=os.path.getmtime, reverse=True)
+    mp4_files = sorted(downloads_dir.glob("*.mp4"), key=os.path.getmtime, reverse=True)
     if not mp4_files:
         raise HTTPException(500, "No MP4 file found after download")
 
-    current_video = mp4_files[0].name
-    await broadcast_log(block_id, f"Saved: {current_video}")
-    return {"status": "ok", "filename": current_video}
+    state = get_pstate(project_id)
+    state["current_video"] = mp4_files[0].name
+    await broadcast_log(project_id, block_id, f"Saved: {state['current_video']}")
+    return {"status": "ok", "filename": state["current_video"]}
 
 @app.post("/api/stop/{block_id}")
-async def stop_process(block_id: str):
-    process = active_processes.get(block_id)
+async def stop_process(block_id: str, project_id: str = Depends(get_project_id)):
+    state = get_pstate(project_id)
+    process = state["active_processes"].get(block_id)
     if process and process.returncode is None:
         try:
-            process.kill()
-            await broadcast_log(block_id, "Process killed by user")
+            parent = psutil.Process(process.pid)
+            for child in parent.children(recursive=True):
+                child.kill()
+            parent.kill()
+            await broadcast_log(project_id, block_id, "Process killed by user")
         except Exception as e:
-            await broadcast_log(block_id, f"Kill error: {e}")
-        active_processes.pop(block_id, None)
+            await broadcast_log(project_id, block_id, f"Kill error: {e}")
+        state["active_processes"].pop(block_id, None)
         return {"status": "stopped"}
     return {"status": "no_active_process"}
 
-# -- BLOCK 2: TRANSCRIBER (with per-segment progress) --
+# -- BLOCK 2: TRANSCRIBER --
 @app.post("/api/transcribe")
-async def transcribe_video():
-    global current_transcript
+async def transcribe_video(project_id: str = Depends(get_project_id)):
     block_id = "transcriber"
+    state = get_pstate(project_id)
+    downloads_dir = get_project_dir(project_id, "downloads")
+    transcripts_dir = get_project_dir(project_id, "transcripts")
 
-    if not current_video:
+    if not state["current_video"]:
         raise HTTPException(400, "No video downloaded yet")
-    video_path = DOWNLOADS_DIR / current_video
+    video_path = downloads_dir / state["current_video"]
     if not video_path.exists():
-        raise HTTPException(404, f"Video not found: {current_video}")
+        raise HTTPException(404, f"Video not found: {state['current_video']}")
 
-    await broadcast_log(block_id, f"Transcribing: {current_video}")
-    await broadcast_log(block_id, f"Model: {WHISPER_MODEL} | Compute: {WHISPER_COMPUTE_TYPE}")
-    await broadcast_log(block_id, "Loading model...")
+    await broadcast_log(project_id, block_id, f"Transcribing: {state['current_video']}")
+    await broadcast_log(project_id, block_id, "Loading model...")
 
     progress_q = thread_queue.Queue()
 
@@ -267,38 +334,37 @@ async def transcribe_video():
                 None, lambda: progress_q.get(timeout=120)
             )
         except Exception:
-            await broadcast_log(block_id, "Transcription timed out")
+            await broadcast_log(project_id, block_id, "Transcription timed out")
             raise HTTPException(500, "Transcription timed out")
 
         if msg[0] == "log":
-            await broadcast_log(block_id, msg[1])
+            await broadcast_log(project_id, block_id, msg[1])
         elif msg[0] == "info":
             info = msg[1]
-            await broadcast_log(block_id, f"Language: {info.language} ({info.language_probability:.2f})")
-            await broadcast_log(block_id, f"Duration: {info.duration:.1f}s")
+            await broadcast_log(project_id, block_id, f"Duration: {info.duration:.1f}s")
         elif msg[0] == "segment":
             seg, pct, count = msg[1], msg[2], msg[3]
             start_s, end_s = int(seg.start), int(seg.end)
             line = f"[{start_s:05d}s -> {end_s:05d}s] {seg.text.strip()}"
             transcript_lines.append(line)
-            await broadcast_log(block_id, f"{pct}% | Seg {count}: {line[:90]}")
+            await broadcast_log(project_id, block_id, f"{pct}% | Seg {count}: {line[:90]}")
         elif msg[0] == "done":
             all_segments = msg[1]
-            await broadcast_log(block_id, f"Transcription complete - {len(all_segments)} segments")
+            await broadcast_log(project_id, block_id, f"Transcription complete")
             break
         elif msg[0] == "error":
-            await broadcast_log(block_id, f"ERROR: {msg[1]}")
+            await broadcast_log(project_id, block_id, f"ERROR: {msg[1]}")
             raise HTTPException(500, f"Transcription failed: {msg[1]}")
 
     transcript_text = "\n".join(transcript_lines)
-    video_stem = Path(current_video).stem
+    video_stem = Path(state["current_video"]).stem
     transcript_name = f"{video_stem}_transcription.txt"
-    transcript_path = TRANSCRIPTS_DIR / transcript_name
+    transcript_path = transcripts_dir / transcript_name
     async with aiofiles.open(transcript_path, "w", encoding="utf-8") as f:
         await f.write(transcript_text)
 
-    current_transcript = transcript_name
-    await broadcast_log(block_id, f"Saved: {transcript_name}")
+    state["current_transcript"] = transcript_name
+    await broadcast_log(project_id, block_id, f"Saved: {transcript_name}")
     return {"status": "ok", "filename": transcript_name, "transcript": transcript_text}
 
 # -- BLOCK 2: GDRIVE AUTH --
@@ -323,10 +389,10 @@ async def submit_gdrive_auth_code(req: AuthCodeRequest):
     creds = flow.credentials
     async with aiofiles.open(str(GOOGLE_TOKEN_FILE), "w") as f:
         await f.write(creds.to_json())
-    return {"status": "ok", "message": "Google Drive authenticated successfully"}
+    return {"status": "ok", "message": "Google Drive authenticated"}
 
 @app.post("/api/gdrive/upload")
-async def upload_to_gdrive(req: GDriveFolderRequest):
+async def upload_to_gdrive(req: GDriveFolderRequest, project_id: str = Depends(get_project_id)):
     block_id = "transcriber"
     folder_id = req.folder_id.strip()
     if not GOOGLE_TOKEN_FILE.exists():
@@ -336,41 +402,28 @@ async def upload_to_gdrive(req: GDriveFolderRequest):
     from googleapiclient.http import MediaFileUpload
     creds = Credentials.from_authorized_user_file(str(GOOGLE_TOKEN_FILE), GOOGLE_SCOPES)
     service = build("drive", "v3", credentials=creds)
+    
+    state = get_pstate(project_id)
+    transcripts_dir = get_project_dir(project_id, "transcripts")
+    processed_dir = get_project_dir(project_id, "processed")
     uploaded = []
-    if current_transcript:
-        t_path = TRANSCRIPTS_DIR / current_transcript
+    
+    if state["current_transcript"]:
+        t_path = transcripts_dir / state["current_transcript"]
         if t_path.exists():
-            await broadcast_log(block_id, f"Uploading: {current_transcript}")
+            await broadcast_log(project_id, block_id, f"Uploading: {state['current_transcript']}")
             media = MediaFileUpload(str(t_path), resumable=True)
-            file_meta = {"name": current_transcript, "parents": [folder_id]}
+            file_meta = {"name": state["current_transcript"], "parents": [folder_id]}
             result = service.files().create(body=file_meta, media_body=media, fields="id").execute()
-            uploaded.append({"name": current_transcript, "id": result["id"]})
-    for clip_path in PROCESSED_DIR.glob("*.mp4"):
-        await broadcast_log(block_id, f"Uploading: {clip_path.name}")
+            uploaded.append({"name": state["current_transcript"], "id": result["id"]})
+            
+    for clip_path in processed_dir.glob("*.mp4"):
+        await broadcast_log(project_id, block_id, f"Uploading: {clip_path.name}")
         media = MediaFileUpload(str(clip_path), resumable=True)
         file_meta = {"name": clip_path.name, "parents": [folder_id]}
         result = service.files().create(body=file_meta, media_body=media, fields="id").execute()
         uploaded.append({"name": clip_path.name, "id": result["id"]})
     return {"status": "ok", "uploaded": uploaded}
-
-# -- BLOCK 3: VALIDATE JSON --
-@app.post("/api/validate-json")
-async def validate_clip_json(req: ClipJSON):
-    try:
-        data = json.loads(req.json_data)
-    except json.JSONDecodeError as e:
-        raise HTTPException(400, f"Invalid JSON: {e}")
-    if not isinstance(data, list):
-        raise HTTPException(400, "JSON must be an array")
-    for i, clip in enumerate(data):
-        if "clip_number" not in clip:
-            raise HTTPException(400, f"Clip {i}: missing clip_number")
-        if "segments_to_keep" not in clip:
-            raise HTTPException(400, f"Clip {i}: missing segments_to_keep")
-        for j, seg in enumerate(clip["segments_to_keep"]):
-            if "start_timestamp" not in seg or "end_timestamp" not in seg:
-                raise HTTPException(400, f"Clip {i} seg {j}: missing timestamps")
-    return {"status": "valid", "clip_count": len(data)}
 
 # -- BLOCK 3: PROCESS CLIPS --
 def parse_timestamp(ts: str) -> float:
@@ -382,186 +435,117 @@ def parse_timestamp(ts: str) -> float:
     return float(parts[0])
 
 @app.post("/api/process-clips")
-async def process_clips(req: ClipJSON):
+async def process_clips(req: ClipJSON, project_id: str = Depends(get_project_id)):
     block_id = "clipprocessor"
-    if not current_video:
+    state = get_pstate(project_id)
+    downloads_dir = get_project_dir(project_id, "downloads")
+    temp_dir = get_project_dir(project_id, "temp")
+    processed_dir = get_project_dir(project_id, "processed")
+
+    if not state["current_video"]:
         raise HTTPException(400, "No video downloaded yet")
-    video_path = DOWNLOADS_DIR / current_video
+    video_path = downloads_dir / state["current_video"]
     if not video_path.exists():
-        raise HTTPException(404, f"Video not found: {current_video}")
+        raise HTTPException(404, f"Video not found: {state['current_video']}")
     try:
         clips = json.loads(req.json_data)
     except json.JSONDecodeError as e:
         raise HTTPException(400, f"Invalid JSON: {e}")
 
-    await broadcast_log(block_id, f"Processing {len(clips)} clips from: {current_video}")
+    await broadcast_log(project_id, block_id, f"Processing {len(clips)} clips")
     results = []
 
     for clip in clips:
-        clip_num = clip["clip_number"]
-        segments = clip["segments_to_keep"]
+        clip_num = clip.get("clip_number", 1)
+        segments = clip.get("segments_to_keep", [])
         hook = clip.get("hook", f"clip_{clip_num}")
         safe_hook = re.sub(r'[^\w\s-]', '', hook)[:80].strip().replace(' ', '_')
         if not safe_hook:
             safe_hook = f"clip_{clip_num}"
 
-        await broadcast_log(block_id, f"\n-- Clip {clip_num}: {safe_hook} --")
+        await broadcast_log(project_id, block_id, f"\n-- Clip {clip_num}: {safe_hook} --")
         segment_files = []
         for i, seg in enumerate(segments):
             start = parse_timestamp(seg["start_timestamp"])
             end = parse_timestamp(seg["end_timestamp"])
             duration = end - start
-            seg_file = TEMP_DIR / f"clip{clip_num}_seg{i}.mp4"
+            seg_file = temp_dir / f"clip{clip_num}_seg{i}.mp4"
             cmd = ["ffmpeg", "-y", "-ss", str(start), "-i", str(video_path),
                    "-t", str(duration), "-c", "copy", "-avoid_negative_ts", "make_zero", str(seg_file)]
-            await broadcast_log(block_id, f"  Cut seg {i+1}: {seg['start_timestamp']} -> {seg['end_timestamp']}")
-            rc = await run_subprocess_with_logs(block_id, cmd)
-            if rc != 0:
-                continue
+            await broadcast_log(project_id, block_id, f"  Cut seg {i+1}")
+            rc = await run_subprocess_with_logs(project_id, block_id, cmd)
+            if rc != 0: continue
             segment_files.append(seg_file)
 
         if not segment_files:
-            await broadcast_log(block_id, f"  No segments for clip {clip_num}")
             continue
 
-        concat_file = TEMP_DIR / f"clip{clip_num}_concat.txt"
+        concat_file = temp_dir / f"clip{clip_num}_concat.txt"
         async with aiofiles.open(concat_file, "w") as f:
             for sf in segment_files:
                 await f.write(f"file '{sf}'\n")
 
-        joined_file = TEMP_DIR / f"clip{clip_num}_joined.mp4"
+        joined_file = temp_dir / f"clip{clip_num}_joined.mp4"
         cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_file), "-c", "copy", str(joined_file)]
-        await broadcast_log(block_id, "  Joining segments...")
-        rc = await run_subprocess_with_logs(block_id, cmd)
-        if rc != 0:
-            continue
+        rc = await run_subprocess_with_logs(project_id, block_id, cmd)
+        if rc != 0: continue
 
-        silence_removed = TEMP_DIR / f"clip{clip_num}_nosilence.mp4"
+        silence_removed = temp_dir / f"clip{clip_num}_nosilence.mp4"
         cmd = ["auto-editor", str(joined_file), "--margin", "0.15sec", "--output", str(silence_removed), "--no-open"]
-        await broadcast_log(block_id, "  Removing silence...")
-        rc = await run_subprocess_with_logs(block_id, cmd)
+        rc = await run_subprocess_with_logs(project_id, block_id, cmd)
         if rc != 0:
-            await broadcast_log(block_id, "  Silence removal failed, using joined file")
             silence_removed = joined_file
 
-        # STEP 4: Face Detection & Final Render (1:1)
         from backend.face_tracker import generate_crop_filter
-        
-        await broadcast_log(block_id, "  Detecting faces (2fps) for 1:1 crop...")
+        await broadcast_log(project_id, block_id, "  Detecting faces for 1:1 crop...")
         loop = asyncio.get_event_loop()
-        filter_path = await loop.run_in_executor(
-            None, generate_crop_filter, str(silence_removed), str(TEMP_DIR)
-        )
+        filter_path = await loop.run_in_executor(None, generate_crop_filter, str(silence_removed), str(temp_dir))
 
-        final_file = PROCESSED_DIR / f"{safe_hook}.mp4"
+        final_file = processed_dir / f"{safe_hook}.mp4"
         
         if not filter_path:
-            await broadcast_log(block_id, "  No faces detected, center crop (1:1)")
+            await broadcast_log(project_id, block_id, "  Center crop (1:1)")
             cmd = ["ffmpeg", "-y", "-i", str(silence_removed),
                    "-vf", "crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2,scale=1080:1080:flags=lanczos",
                    "-c:v", FFMPEG_VIDEO_CODEC, "-preset", FFMPEG_VIDEO_PRESET,
-                   "-crf", FFMPEG_VIDEO_CRF, "-profile:v", FFMPEG_VIDEO_PROFILE,
-                   "-level", FFMPEG_VIDEO_LEVEL, "-pix_fmt", FFMPEG_PIXEL_FORMAT,
+                   "-crf", FFMPEG_VIDEO_CRF, "-pix_fmt", FFMPEG_PIXEL_FORMAT,
                    "-c:a", FFMPEG_AUDIO_CODEC, "-b:a", FFMPEG_AUDIO_BITRATE,
-                   "-ar", FFMPEG_AUDIO_SAMPLE_RATE, "-movflags", "+faststart", str(final_file)]
-            rc = await run_subprocess_with_logs(block_id, cmd)
+                   "-movflags", "+faststart", str(final_file)]
         else:
-            await broadcast_log(block_id, "  Applying dynamic face crop (1:1 HD render)...")
+            await broadcast_log(project_id, block_id, "  Dynamic face crop (1:1)")
             from backend.face_tracker import get_video_info
-            
             info = get_video_info(str(silence_removed))
             crop_size = min(info["width"], info["height"])
-            center_x = (info["width"] - crop_size) // 2
-            center_y = (info["height"] - crop_size) // 2
-            
-            filter_complex = (
-                f"sendcmd=f='{filter_path}',"
-                f"crop={crop_size}:{crop_size}:{center_x}:{center_y},"
-                f"scale=1080:1080:flags=lanczos"
-            )
-            
-            cmd = ["ffmpeg", "-y", "-i", str(silence_removed),
-                   "-vf", filter_complex,
+            cx, cy = (info["width"] - crop_size) // 2, (info["height"] - crop_size) // 2
+            fc = f"sendcmd=f='{filter_path}',crop={crop_size}:{crop_size}:{cx}:{cy},scale=1080:1080:flags=lanczos"
+            cmd = ["ffmpeg", "-y", "-i", str(silence_removed), "-vf", fc,
                    "-c:v", FFMPEG_VIDEO_CODEC, "-preset", FFMPEG_VIDEO_PRESET,
-                   "-crf", FFMPEG_VIDEO_CRF, "-profile:v", FFMPEG_VIDEO_PROFILE,
-                   "-level", FFMPEG_VIDEO_LEVEL, "-pix_fmt", FFMPEG_PIXEL_FORMAT,
+                   "-crf", FFMPEG_VIDEO_CRF, "-pix_fmt", FFMPEG_PIXEL_FORMAT,
                    "-c:a", FFMPEG_AUDIO_CODEC, "-b:a", FFMPEG_AUDIO_BITRATE,
-                   "-ar", FFMPEG_AUDIO_SAMPLE_RATE, "-movflags", "+faststart", str(final_file)]
-            rc = await run_subprocess_with_logs(block_id, cmd)
-
+                   "-movflags", "+faststart", str(final_file)]
+            
+        rc = await run_subprocess_with_logs(project_id, block_id, cmd)
         if rc != 0:
-            await broadcast_log(block_id, "  ❌ Final render failed")
+            await broadcast_log(project_id, block_id, "  ❌ Final render failed")
             continue
             
-        meta_file = PROCESSED_DIR / f"{safe_hook}.json"
+        meta_file = processed_dir / f"{safe_hook}.json"
         async with aiofiles.open(meta_file, "w", encoding="utf-8") as f:
             await f.write(json.dumps(clip, indent=2))
             
-        await broadcast_log(block_id, f"  ✅ Clip saved (1:1): {safe_hook}.mp4")
+        await broadcast_log(project_id, block_id, f"  ✅ Saved: {safe_hook}.mp4")
         results.append({"clip_number": clip_num, "filename": f"{safe_hook}.mp4"})
 
-    for f in TEMP_DIR.glob("*"):
+    for f in temp_dir.glob("*"):
         f.unlink(missing_ok=True)
-    await broadcast_log(block_id, f"\nProcessed {len(results)}/{len(clips)} clips")
     return {"status": "ok", "clips": results}
-
-# -- BLOCK 3: REFRAME --
-@app.post("/api/reframe")
-async def reframe_clip(req: ReframeRequest):
-    block_id = "clipprocessor"
-    clip_path = PROCESSED_DIR / req.clip_filename
-    if not clip_path.exists():
-        raise HTTPException(404, f"Clip not found: {req.clip_filename}")
-
-    await broadcast_log(block_id, f"Reframing: {req.clip_filename}")
-    from backend.face_tracker import generate_crop_filter, apply_crop_filter
-
-    await broadcast_log(block_id, "  Detecting faces (2fps)...")
-    loop = asyncio.get_event_loop()
-    filter_path = await loop.run_in_executor(None, generate_crop_filter, str(clip_path), str(TEMP_DIR))
-
-    output_path = PROCESSED_DIR / f"reframed_{req.clip_filename}"
-    if not filter_path:
-        await broadcast_log(block_id, "  No faces detected, center crop (9:16)")
-        # 9:16 center crop: height is min(iw, ih) if landscape. Width is height * 9/16
-        crop_filter = "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920:flags=lanczos"
-        cmd = ["ffmpeg", "-y", "-i", str(clip_path),
-               "-vf", crop_filter,
-               "-c:v", FFMPEG_VIDEO_CODEC, "-preset", FFMPEG_VIDEO_PRESET,
-               "-crf", FFMPEG_VIDEO_CRF, "-pix_fmt", FFMPEG_PIXEL_FORMAT,
-               "-c:a", FFMPEG_AUDIO_CODEC, "-b:a", FFMPEG_AUDIO_BITRATE,
-               "-movflags", "+faststart", str(output_path)]
-        await run_subprocess_with_logs(block_id, cmd)
-    else:
-        await broadcast_log(block_id, "  Applying dynamic face crop...")
-        await loop.run_in_executor(None, apply_crop_filter, str(clip_path), filter_path, str(output_path))
-
-    if output_path.exists():
-        clip_path.unlink()
-        output_path.rename(clip_path)
-        await broadcast_log(block_id, f"  Reframed: {req.clip_filename}")
-    else:
-        await broadcast_log(block_id, f"  Reframe failed for {req.clip_filename}")
-    return {"status": "ok", "filename": req.clip_filename}
-
-@app.post("/api/reframe-all")
-async def reframe_all_clips():
-    block_id = "clipprocessor"
-    clips = [c for c in PROCESSED_DIR.glob("*.mp4") if not c.name.startswith("reframed_")]
-    if not clips:
-        raise HTTPException(404, "No clips to reframe")
-    await broadcast_log(block_id, f"Reframing {len(clips)} clips...")
-    results = []
-    for clip in clips:
-        result = await reframe_clip(ReframeRequest(clip_filename=clip.name))
-        results.append(result)
-    return {"status": "ok", "reframed": len(results)}
 
 # -- BLOCK 4: GALLERY --
 @app.get("/api/clips")
-async def list_clips():
+async def list_clips(project_id: str = Depends(get_project_id)):
     clips = []
-    for f in sorted(PROCESSED_DIR.glob("*.mp4"), key=os.path.getmtime, reverse=True):
+    processed_dir = get_project_dir(project_id, "processed")
+    for f in sorted(processed_dir.glob("*.mp4"), key=os.path.getmtime, reverse=True):
         meta_path = f.with_suffix(".json")
         metadata = {}
         if meta_path.exists():
@@ -573,24 +557,25 @@ async def list_clips():
         clips.append({
             "filename": f.name, 
             "size_mb": round(f.stat().st_size / (1024*1024), 2),
-            "url": f"/api/clips/serve/{f.name}",
+            "url": f"/api/clips/serve/{f.name}?project_id={project_id}",
             "metadata": metadata
         })
     return {"clips": clips}
 
 @app.get("/api/clips/serve/{filename}")
-async def serve_clip(filename: str):
-    path = PROCESSED_DIR / filename
+async def serve_clip(filename: str, project_id: str = "default"):
+    path = get_project_dir(project_id, "processed") / filename
     if not path.exists():
         raise HTTPException(404, "Clip not found")
     return FileResponse(path, media_type="video/mp4", filename=filename)
 
 # -- GLOBAL: CACHE CLEAR --
 @app.post("/api/clear-all")
-async def clear_all_data():
-    global current_video, current_transcript
+async def clear_all_data(project_id: str = Depends(get_project_id)):
+    state = get_pstate(project_id)
     count = 0
-    for directory in [DOWNLOADS_DIR, PROCESSED_DIR, TRANSCRIPTS_DIR, TEMP_DIR]:
+    for sub in ["downloads", "processed", "transcripts", "temp"]:
+        directory = get_project_dir(project_id, sub)
         for f in directory.glob("*"):
             if f.is_file():
                 f.unlink()
@@ -598,18 +583,28 @@ async def clear_all_data():
             elif f.is_dir():
                 shutil.rmtree(f)
                 count += 1
-    current_video = None
-    current_transcript = None
+    state["current_video"] = None
+    state["current_transcript"] = None
     return {"status": "ok", "deleted": count}
 
 # -- STATUS --
 @app.get("/api/status")
-async def get_status():
+async def get_status(project_id: str = Depends(get_project_id)):
+    state = get_pstate(project_id)
+    processed_dir = get_project_dir(project_id, "processed")
+    # if memory state was reset but files exist
+    if not state["current_video"]:
+        vids = list(get_project_dir(project_id, "downloads").glob("*.mp4"))
+        if vids: state["current_video"] = vids[0].name
+    if not state["current_transcript"]:
+        trans = list(get_project_dir(project_id, "transcripts").glob("*.txt"))
+        if trans: state["current_transcript"] = trans[0].name
+        
     return {
-        "current_video": current_video,
-        "current_transcript": current_transcript,
-        "active_processes": list(active_processes.keys()),
-        "processed_clips": [f.name for f in PROCESSED_DIR.glob("*.mp4")],
+        "current_video": state["current_video"],
+        "current_transcript": state["current_transcript"],
+        "active_processes": list(state["active_processes"].keys()),
+        "processed_clips": [f.name for f in processed_dir.glob("*.mp4")],
         "gdrive_authenticated": GOOGLE_TOKEN_FILE.exists(),
     }
 
