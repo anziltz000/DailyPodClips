@@ -684,6 +684,7 @@ details[open] summary { border-bottom: 1px solid var(--border); }
     padding: 0;
     max-width: 500px;
     width: 90%;
+    z-index: 9999;
 }
 .modal::backdrop {
     background: rgba(0, 0, 0, 0.6);

@@ -133,14 +133,14 @@ async function loadProjects() {
         }
 
         list.innerHTML = res.projects.map(p => `
-            <div class="project-item" onclick="selectProject('${p.id}', '${escapeHtml(p.name)}')">
+            <div class="project-item" data-id="${p.id}" data-name="${escapeHtml(p.name)}" onclick="selectProject(this.getAttribute('data-id'), this.getAttribute('data-name'))">
                 <div class="project-item-info">
                     <strong>${p.id === currentProjectId ? '✅ ' : ''}${escapeHtml(p.name)}</strong>
                     <span>Created: ${new Date(p.created_at * 1000).toLocaleDateString()}</span>
                 </div>
                 <div class="project-item-actions">
-                    <button type="button" class="btn btn-secondary btn-small" onclick="event.stopPropagation(); openRenameModal('${p.id}', '${escapeHtml(p.name)}')">✏️</button>
-                    <button type="button" class="btn btn-danger btn-small" onclick="event.stopPropagation(); doDeleteProject('${p.id}')">🗑️</button>
+                    <button type="button" class="btn btn-secondary btn-small" onclick="event.stopPropagation(); openRenameModal(this.parentElement.parentElement.getAttribute('data-id'), this.parentElement.parentElement.getAttribute('data-name'))">✏️</button>
+                    <button type="button" class="btn btn-danger btn-small" onclick="event.stopPropagation(); doDeleteProject(this.parentElement.parentElement.getAttribute('data-id'))">🗑️</button>
                 </div>
             </div>
         `).join('');
