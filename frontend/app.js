@@ -353,6 +353,35 @@ async function clearAllData() {
     }
 }
 
+// ── SETTINGS ─────────────────────────────────────────────────
+async function loadSettings() {
+    try {
+        const result = await apiGet('/api/settings');
+        if (result.cookies) document.getElementById('download-cookies').value = result.cookies;
+        if (result.gdrive_folder_transcripts) document.getElementById('gdrive-folder-id').value = result.gdrive_folder_transcripts;
+        if (result.gdrive_folder_clips) document.getElementById('gdrive-clips-folder').value = result.gdrive_folder_clips;
+    } catch (err) {
+        console.warn('Failed to load settings:', err);
+    }
+}
+
+async function saveSettings() {
+    const cookies = document.getElementById('download-cookies').value.trim();
+    const gdrive_folder_transcripts = document.getElementById('gdrive-folder-id').value.trim();
+    const gdrive_folder_clips = document.getElementById('gdrive-clips-folder').value.trim();
+    
+    try {
+        await apiPost('/api/settings', {
+            cookies: cookies || null,
+            gdrive_folder_transcripts: gdrive_folder_transcripts || null,
+            gdrive_folder_clips: gdrive_folder_clips || null
+        });
+        console.log('Settings saved automatically.');
+    } catch (err) {
+        console.error('Failed to save settings:', err);
+    }
+}
+
 // ── Utils ────────────────────────────────────────────────────
 function escapeHtml(str) {
     const div = document.createElement('div');
@@ -367,6 +396,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load gallery on startup
     refreshGallery();
+
+    // Load persistent settings
+    loadSettings();
 
     // Check server status
     apiGet('/api/status').then(status => {

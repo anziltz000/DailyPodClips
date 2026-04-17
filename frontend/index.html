@@ -9,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
 </head>
 <body>
     <!-- ═══ HEADER ═══ -->
@@ -49,7 +50,7 @@
                 </div>
                 <details class="cookies-section">
                     <summary>🍪 yt-dlp Cookies (optional)</summary>
-                    <textarea id="download-cookies" rows="4" placeholder="Paste Netscape-format cookies here for age-gated/private videos..."></textarea>
+                    <textarea id="download-cookies" rows="4" placeholder="Paste Netscape-format cookies here for age-gated/private videos..." onchange="saveSettings()"></textarea>
                 </details>
                 <div class="action-row">
                     <button class="btn btn-primary" id="btn-download" onclick="startDownload()">
@@ -105,8 +106,8 @@
                             <button class="btn btn-primary" onclick="submitGDriveCode()">Submit Code</button>
                         </div>
                         <div class="input-group" style="margin-top:1rem;">
-                            <label for="gdrive-folder-id">GDrive Folder ID</label>
-                            <input type="text" id="gdrive-folder-id" placeholder="Paste your Google Drive folder ID...">
+                            <label for="gdrive-folder-id">GDrive Folder ID (Transcripts)</label>
+                            <input type="text" id="gdrive-folder-id" placeholder="Paste your Google Drive folder ID..." onchange="saveSettings()">
                         </div>
                         <button class="btn btn-secondary" onclick="uploadToGDrive()">Upload to GDrive</button>
                     </div>
@@ -166,7 +167,7 @@
                     <div class="gdrive-inner">
                         <div class="input-group">
                             <label for="gdrive-clips-folder">GDrive Folder ID for Clips</label>
-                            <input type="text" id="gdrive-clips-folder" placeholder="Folder ID...">
+                            <input type="text" id="gdrive-clips-folder" placeholder="Folder ID..." onchange="saveSettings()">
                         </div>
                         <button class="btn btn-secondary" onclick="uploadClipsToGDrive()">Upload All Clips</button>
                     </div>
