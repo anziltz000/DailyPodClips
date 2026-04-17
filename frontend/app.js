@@ -339,15 +339,39 @@ async function refreshGallery() {
             return;
         }
 
-        grid.innerHTML = result.clips.map(clip => `
+        result.clips.sort((a, b) => {
+            const scoreA = (a.metadata && a.metadata.virality_score) ? parseInt(a.metadata.virality_score) : 0;
+            const scoreB = (b.metadata && b.metadata.virality_score) ? parseInt(b.metadata.virality_score) : 0;
+            return scoreB - scoreA;
+        });
+
+        grid.innerHTML = result.clips.map(clip => {
+            const meta = clip.metadata || {};
+            return `
             <div class="gallery-card">
                 <video src="${clip.url}?v=${Date.now()}" controls preload="metadata" playsinline></video>
                 <div class="gallery-card-info">
                     <h4>${escapeHtml(clip.filename)}</h4>
-                    <p class="meta">${clip.size_mb} MB</p>
+                    ${meta.virality_score ? `<div class="score">Virality Score: <strong>${escapeHtml(meta.virality_score.toString())}/100</strong></div>` : ''}
+                    <p class="meta">${clip.size_mb} MB${meta.estimated_total_seconds ? ` • ${meta.estimated_total_seconds}s` : ''}</p>
+                    
+                    ${meta.why_chosen ? `<div class="meta-section"><strong>Why Chosen:</strong> ${escapeHtml(meta.why_chosen)}</div>` : ''}
+                    ${meta.why_viral ? `<div class="meta-section"><strong>Why Viral:</strong> ${escapeHtml(meta.why_viral)}</div>` : ''}
+                    ${meta.audio_tag ? `<div class="meta-section"><strong>Audio Tag:</strong> ${escapeHtml(meta.audio_tag)}</div>` : ''}
+                    
+                    ${meta.tiktok_caption || meta.instagram_reels || meta.youtube_shorts ? `
+                    <details class="social-details">
+                        <summary>📱 Social Media Kit</summary>
+                        <div class="social-content">
+                            ${meta.tiktok_caption ? `<strong>TikTok:</strong><br>${escapeHtml(meta.tiktok_caption)}<br><br>` : ''}
+                            ${meta.instagram_reels ? `<strong>Instagram:</strong><br>${escapeHtml(meta.instagram_reels)}<br><br>` : ''}
+                            ${meta.youtube_shorts ? `<strong>YouTube:</strong><br>${escapeHtml(meta.youtube_shorts)}` : ''}
+                        </div>
+                    </details>
+                    ` : ''}
                 </div>
             </div>
-        `).join('');
+        `}).join('');
     } catch (err) {
         grid.innerHTML = `<p class="empty-state">Error loading clips: ${err.message}</p>`;
     }

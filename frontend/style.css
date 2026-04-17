@@ -594,6 +594,47 @@ details[open] summary { border-bottom: 1px solid var(--border); }
     margin-top: 0.25rem;
 }
 
+.gallery-card-info .score {
+    font-size: 0.75rem;
+    color: #10b981;
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+}
+
+.gallery-card-info .meta-section {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.5rem;
+    line-height: 1.4;
+}
+
+.gallery-card-info .meta-section strong {
+    color: var(--text-primary);
+}
+
+.gallery-card-info .social-details {
+    margin-top: 0.75rem;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+}
+
+.gallery-card-info .social-details summary {
+    font-size: 0.75rem;
+    padding: 0.5rem;
+}
+
+.gallery-card-info .social-content {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    padding: 0.5rem;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.gallery-card-info .social-content strong {
+    color: var(--text-primary);
+}
+
 .empty-state {
     grid-column: 1 / -1;
     text-align: center;

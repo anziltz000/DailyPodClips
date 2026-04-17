@@ -493,6 +493,10 @@ async def process_clips(req: ClipJSON):
             await broadcast_log(block_id, "  ❌ Final render failed")
             continue
             
+        meta_file = PROCESSED_DIR / f"{safe_hook}.json"
+        async with aiofiles.open(meta_file, "w", encoding="utf-8") as f:
+            await f.write(json.dumps(clip, indent=2))
+            
         await broadcast_log(block_id, f"  ✅ Clip saved (1:1): {safe_hook}.mp4")
         results.append({"clip_number": clip_num, "filename": f"{safe_hook}.mp4"})
 
@@ -558,8 +562,20 @@ async def reframe_all_clips():
 async def list_clips():
     clips = []
     for f in sorted(PROCESSED_DIR.glob("*.mp4"), key=os.path.getmtime, reverse=True):
-        clips.append({"filename": f.name, "size_mb": round(f.stat().st_size / (1024*1024), 2),
-                       "url": f"/api/clips/serve/{f.name}"})
+        meta_path = f.with_suffix(".json")
+        metadata = {}
+        if meta_path.exists():
+            try:
+                metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+        clips.append({
+            "filename": f.name, 
+            "size_mb": round(f.stat().st_size / (1024*1024), 2),
+            "url": f"/api/clips/serve/{f.name}",
+            "metadata": metadata
+        })
     return {"clips": clips}
 
 @app.get("/api/clips/serve/{filename}")
