@@ -115,16 +115,25 @@ function setStatus(text, busy = false) {
  * Send a browser notification if permission is granted.
  */
 function notifyUser(title, body) {
-    if ("Notification" in window && Notification.permission === "granted") {
-        new Notification(title, { body, icon: '/static/favicon.png' });
+    try {
+        if ("Notification" in window && Notification.permission === "granted") {
+            new Notification(title, { body, icon: '/static/favicon.png' });
+        }
+    } catch (err) {
+        console.warn("Notification error:", err);
     }
 }
 
 // ── BLOCK 1: DOWNLOADER ──────────────────────────────────────
 async function startDownload() {
-    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
-        Notification.requestPermission();
+    try {
+        if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+            Notification.requestPermission().catch(e => console.warn(e));
+        }
+    } catch (e) {
+        console.warn(e);
     }
+    
     const url = document.getElementById('download-url').value.trim();
     if (!url) {
         alert('Please enter a video URL');
@@ -250,6 +259,7 @@ function validateJSON() {
         statusEl.className = 'json-status invalid';
         statusEl.textContent = '❌ JSON field is empty';
         statusEl.style.display = 'block';
+        alert('JSON field is empty. Please paste the AI output first.');
         return false;
     }
 
@@ -271,13 +281,18 @@ function validateJSON() {
         statusEl.className = 'json-status invalid';
         statusEl.textContent = `❌ ${err.message}`;
         statusEl.style.display = 'block';
+        alert(`JSON Validation Error:\n${err.message}`);
         return false;
     }
 }
 
 async function startProcessing() {
-    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
-        Notification.requestPermission();
+    try {
+        if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+            Notification.requestPermission().catch(e => console.warn(e));
+        }
+    } catch (e) {
+        console.warn(e);
     }
     
     if (!validateJSON()) return;
@@ -411,9 +426,13 @@ function toggleEdit(inputId, btnId) {
 
 // ── Initialize ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-    // Request notification permission
-    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
-        Notification.requestPermission();
+    // Request notification permission safely
+    try {
+        if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+            Notification.requestPermission().catch(e => console.warn(e));
+        }
+    } catch (e) {
+        console.warn("Notifications init error:", e);
     }
 
     // Connect SSE for all blocks
