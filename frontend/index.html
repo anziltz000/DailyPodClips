@@ -106,8 +106,11 @@
                             <button class="btn btn-primary" onclick="submitGDriveCode()">Submit Code</button>
                         </div>
                         <div class="input-group" style="margin-top:1rem;">
-                            <label for="gdrive-folder-id">GDrive Folder ID (Transcripts)</label>
-                            <input type="text" id="gdrive-folder-id" placeholder="Paste your Google Drive folder ID..." onchange="saveSettings()">
+                            <label>GDrive Folder ID (Transcripts)</label>
+                            <div class="settings-field-group">
+                                <input type="text" id="gdrive-folder-id" placeholder="Paste your Google Drive folder ID..." onchange="saveSettings()" disabled>
+                                <button class="btn btn-secondary btn-small" id="btn-edit-gdrive-transcripts" onclick="toggleEdit('gdrive-folder-id', 'btn-edit-gdrive-transcripts')">Edit</button>
+                            </div>
                         </div>
                         <button class="btn btn-secondary" onclick="uploadToGDrive()">Upload to GDrive</button>
                     </div>
@@ -166,8 +169,11 @@
                     <summary>☁ Export Clips to GDrive</summary>
                     <div class="gdrive-inner">
                         <div class="input-group">
-                            <label for="gdrive-clips-folder">GDrive Folder ID for Clips</label>
-                            <input type="text" id="gdrive-clips-folder" placeholder="Folder ID..." onchange="saveSettings()">
+                            <label>GDrive Folder ID for Clips</label>
+                            <div class="settings-field-group">
+                                <input type="text" id="gdrive-clips-folder" placeholder="Folder ID..." onchange="saveSettings()" disabled>
+                                <button class="btn btn-secondary btn-small" id="btn-edit-gdrive-clips" onclick="toggleEdit('gdrive-clips-folder', 'btn-edit-gdrive-clips')">Edit</button>
+                            </div>
                         </div>
                         <button class="btn btn-secondary" onclick="uploadClipsToGDrive()">Upload All Clips</button>
                     </div>

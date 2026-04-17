@@ -57,6 +57,10 @@ def detect_faces_sampled(video_path: str, sample_fps: int = FACE_TRACK_FPS) -> l
     )
 
     cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print(f"cv2.VideoCapture failed for {video_path}")
+        return []
+
     video_fps = cap.get(cv2.CAP_PROP_FPS) or 30
     frame_interval = max(1, int(video_fps / sample_fps))
 
@@ -169,8 +173,15 @@ def generate_crop_filter(video_path: str, temp_dir: str) -> Optional[str]:
     w, h = info["width"], info["height"]
     fps = info["fps"]
 
-    # The 1:1 crop size = min(w, h) — typically the height for 16:9 video
-    crop_size = min(w, h)
+    # 9:16 crop size for vertical video
+    # Assuming landscape input, the height is the limiting factor.
+    crop_h = h
+    crop_w = int(h * 9 / 16)
+    
+    # If the video is already vertical, adjust
+    if w < crop_w:
+        crop_w = w
+        crop_h = int(w * 16 / 9)
 
     # Detect faces at low fps
     detections = detect_faces_sampled(video_path)
@@ -190,13 +201,13 @@ def generate_crop_filter(video_path: str, temp_dir: str) -> Optional[str]:
     filter_lines = []
     for point in track:
         # Convert normalized coords to pixel coords
-        # Center the crop_size square on the face
-        crop_x = int(point["cx"] * w - crop_size / 2)
-        crop_y = int(point["cy"] * h - crop_size / 2)
+        # Center the 9:16 crop on the face
+        crop_x = int(point["cx"] * w - crop_w / 2)
+        crop_y = int(point["cy"] * h - crop_h / 2)
 
         # Clamp to video bounds
-        crop_x = max(0, min(crop_x, w - crop_size))
-        crop_y = max(0, min(crop_y, h - crop_size))
+        crop_x = max(0, min(crop_x, w - crop_w))
+        crop_y = max(0, min(crop_y, h - crop_h))
 
         filter_lines.append({
             "time": point["time"],
@@ -218,7 +229,8 @@ def generate_crop_filter(video_path: str, temp_dir: str) -> Optional[str]:
     with open(debug_path, "w") as f:
         json.dump({
             "video": {"width": w, "height": h, "fps": fps},
-            "crop_size": crop_size,
+            "crop_w": crop_w,
+            "crop_h": crop_h,
             "points": filter_lines,
         }, f, indent=2)
 
@@ -231,17 +243,22 @@ def apply_crop_filter(video_path: str, filter_script_path: str, output_path: str
     Returns the ffmpeg return code.
     """
     info = get_video_info(video_path)
-    crop_size = min(info["width"], info["height"])
+    h = info["height"]
+    w = info["width"]
+    
+    crop_h = h
+    crop_w = int(h * 9 / 16)
+    if w < crop_w:
+        crop_w = w
+        crop_h = int(w * 16 / 9)
 
-    # Use sendcmd to dynamically change crop parameters
-    # The crop filter starts at center, sendcmd adjusts x/y over time
-    center_x = (info["width"] - crop_size) // 2
-    center_y = (info["height"] - crop_size) // 2
+    center_x = (w - crop_w) // 2
+    center_y = (h - crop_h) // 2
 
     filter_complex = (
         f"sendcmd=f='{filter_script_path}',"
-        f"crop={crop_size}:{crop_size}:{center_x}:{center_y},"
-        f"scale=1080:1080:flags=lanczos"
+        f"crop={crop_w}:{crop_h}:{center_x}:{center_y},"
+        f"scale=1080:1920:flags=lanczos"
     )
 
     cmd = [

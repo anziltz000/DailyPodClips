@@ -480,9 +480,11 @@ async def reframe_clip(req: ReframeRequest):
 
     output_path = PROCESSED_DIR / f"reframed_{req.clip_filename}"
     if not filter_path:
-        await broadcast_log(block_id, "  No faces detected, center crop")
+        await broadcast_log(block_id, "  No faces detected, center crop (9:16)")
+        # 9:16 center crop: height is min(iw, ih) if landscape. Width is height * 9/16
+        crop_filter = "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920:flags=lanczos"
         cmd = ["ffmpeg", "-y", "-i", str(clip_path),
-               "-vf", "crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2",
+               "-vf", crop_filter,
                "-c:v", FFMPEG_VIDEO_CODEC, "-preset", FFMPEG_VIDEO_PRESET,
                "-crf", FFMPEG_VIDEO_CRF, "-pix_fmt", FFMPEG_PIXEL_FORMAT,
                "-c:a", FFMPEG_AUDIO_CODEC, "-b:a", FFMPEG_AUDIO_BITRATE,

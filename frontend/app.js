@@ -111,6 +111,15 @@ function setStatus(text, busy = false) {
     txt.textContent = text;
 }
 
+/**
+ * Send a browser notification if permission is granted.
+ */
+function notifyUser(title, body) {
+    if ("Notification" in window && Notification.permission === "granted") {
+        new Notification(title, { body, icon: '/static/favicon.png' });
+    }
+}
+
 // ── BLOCK 1: DOWNLOADER ──────────────────────────────────────
 async function startDownload() {
     const url = document.getElementById('download-url').value.trim();
@@ -128,9 +137,11 @@ async function startDownload() {
     try {
         const result = await apiPost('/api/download', { url, cookies: cookies || null });
         setStatus(`Downloaded: ${result.filename}`);
+        notifyUser('Download Complete', result.filename);
     } catch (err) {
         setStatus('Download failed');
         appendLog(document.getElementById('log-downloader'), `❌ Error: ${err.message}`);
+        notifyUser('Download Failed', err.message);
     } finally {
         setLoading('btn-download', false);
     }
@@ -151,9 +162,11 @@ async function startTranscribe() {
         const contentEl = document.getElementById('transcript-content');
         previewEl.style.display = 'block';
         contentEl.textContent = result.transcript;
+        notifyUser('Transcription Complete', 'Transcript ready for processing.');
     } catch (err) {
         setStatus('Transcription failed');
         appendLog(document.getElementById('log-transcriber'), `❌ Error: ${err.message}`);
+        notifyUser('Transcription Failed', err.message);
     } finally {
         setLoading('btn-transcribe', false);
     }
@@ -270,11 +283,13 @@ async function processClips() {
     try {
         const result = await apiPost('/api/process-clips', { json_data: jsonText });
         setStatus(`Processed ${result.clips.length} clips`);
+        notifyUser('Processing Complete', `Successfully processed ${result.clips.length} clips.`);
         // Auto-refresh gallery
         await refreshGallery();
     } catch (err) {
         setStatus('Processing failed');
         appendLog(document.getElementById('log-clipprocessor'), `❌ Error: ${err.message}`);
+        notifyUser('Processing Failed', err.message);
     } finally {
         setLoading('btn-process', false);
     }
@@ -288,10 +303,12 @@ async function reframeAll() {
     try {
         const result = await apiPost('/api/reframe-all');
         setStatus(`Reframed ${result.reframed} clips`);
+        notifyUser('Reframe Complete', `Reframed ${result.reframed} clips to 9:16 vertical.`);
         await refreshGallery();
     } catch (err) {
         setStatus('Reframe failed');
         appendLog(document.getElementById('log-clipprocessor'), `❌ Error: ${err.message}`);
+        notifyUser('Reframe Failed', err.message);
     } finally {
         setLoading('btn-reframe', false);
     }
@@ -320,7 +337,7 @@ async function refreshGallery() {
 
         grid.innerHTML = result.clips.map(clip => `
             <div class="gallery-card">
-                <video src="${clip.url}" controls preload="metadata" playsinline></video>
+                <video src="${clip.url}?v=${Date.now()}" controls preload="metadata" playsinline></video>
                 <div class="gallery-card-info">
                     <h4>${escapeHtml(clip.filename)}</h4>
                     <p class="meta">${clip.size_mb} MB</p>
@@ -389,8 +406,27 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+function toggleEdit(inputId, btnId) {
+    const input = document.getElementById(inputId);
+    const btn = document.getElementById(btnId);
+    if (input.disabled) {
+        input.disabled = false;
+        input.focus();
+        btn.textContent = 'Save';
+    } else {
+        input.disabled = true;
+        btn.textContent = 'Edit';
+        saveSettings();
+    }
+}
+
 // ── Initialize ───────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+    // Request notification permission
+    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+        Notification.requestPermission();
+    }
+
     // Connect SSE for all blocks
     ['downloader', 'transcriber', 'clipprocessor'].forEach(connectSSE);
 

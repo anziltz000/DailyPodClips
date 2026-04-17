@@ -256,6 +256,18 @@ input:focus, textarea:focus {
     box-shadow: 0 0 0 3px var(--border-glow);
 }
 
+input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.settings-field-group {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
 textarea {
     resize: vertical;
     min-height: 80px;
@@ -294,6 +306,11 @@ textarea#clip-json {
     width: 16px;
     height: 16px;
     flex-shrink: 0;
+}
+
+.btn-small {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.75rem;
 }
 
 .btn-primary {
