@@ -121,16 +121,15 @@ async function loadProjects() {
         const list = document.getElementById('project-list');
         if (res.projects.length === 0) {
             list.innerHTML = '<p class="empty-state">No projects found. Create one!</p>';
-            if (!currentProjectId) document.getElementById('project-modal').showModal();
+            const modal = document.getElementById('project-modal');
+            if (!currentProjectId && !modal.open) modal.showModal();
             return;
         }
         
         if (currentProjectId && !res.projects.find(p => p.id === currentProjectId)) {
-            currentProjectId = res.projects[0].id;
-            localStorage.setItem('currentProjectId', currentProjectId);
-        } else if (!currentProjectId && res.projects.length > 0) {
-            currentProjectId = res.projects[0].id;
-            localStorage.setItem('currentProjectId', currentProjectId);
+            currentProjectId = null;
+            localStorage.removeItem('currentProjectId');
+            document.getElementById('current-project-name').textContent = "No Project Selected";
         }
 
         list.innerHTML = res.projects.map(p => `
@@ -149,10 +148,13 @@ async function loadProjects() {
         const curr = res.projects.find(p => p.id === currentProjectId);
         if (curr) {
             document.getElementById('current-project-name').textContent = curr.name;
+        } else {
+            document.getElementById('current-project-name').textContent = "No Project Selected";
         }
 
-        if (!currentProjectId) {
-            document.getElementById('project-modal').showModal();
+        const modal = document.getElementById('project-modal');
+        if (!currentProjectId && !modal.open) {
+            modal.showModal();
         }
     } catch (err) {
         console.error("Failed to load projects", err);
@@ -161,7 +163,8 @@ async function loadProjects() {
 
 function openProjectModal() {
     loadProjects();
-    document.getElementById('project-modal').showModal();
+    const modal = document.getElementById('project-modal');
+    if (!modal.open) modal.showModal();
 }
 
 async function createProject() {
@@ -502,9 +505,14 @@ function toggleEdit(inputId, btnId) {
 }
 
 function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    if (!str) return '';
+    return str.toString()
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;")
+        .replace(/`/g, "&#96;");
 }
 
 // ── STATUS SYNC ──────────────────────────────────────────────
