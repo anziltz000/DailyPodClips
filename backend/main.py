@@ -171,13 +171,19 @@ async def download_video(req: DownloadRequest):
         ]
     else:
         # Use yt-dlp for YouTube/platform links
+        # Format: try best 1080p, broad fallbacks so it never fails on format
         cmd = [
             "yt-dlp",
-            "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best",
+            "-f", "bv*[height<=1080]+ba/b[height<=1080]/bv+ba/b",
             "--merge-output-format", "mp4",
+            "--remux-video", "mp4",
             "-o", str(DOWNLOADS_DIR / "%(title)s.%(ext)s"),
             "--no-playlist",
             "--progress",
+            "--newline",
+            # Retry and resilience flags
+            "--retries", "3",
+            "--fragment-retries", "3",
         ]
         if cookie_path:
             cmd.extend(["--cookies", cookie_path])

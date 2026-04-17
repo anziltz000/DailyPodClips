@@ -14,12 +14,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-dev python3-venv \
     ffmpeg \
     aria2 \
-    wget curl git \
+    wget curl git ca-certificates gnupg \
     # MediaPipe / OpenCV native deps
     libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
     # Build tools for any wheels that need compiling
     build-essential cmake \
     && rm -rf /var/lib/apt/lists/*
+
+# ── Install Node.js (required by yt-dlp for YouTube JS challenge solver) ──
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && node --version
 
 # ── Install yt-dlp (latest binary — works on ARM64) ─────────
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
