@@ -33,8 +33,7 @@ cd DailyPodClips
 # Build and run
 docker compose up --build -d
 
-# Access at http://localhost:8000
-# Or via Cloudflare Tunnel: shorts.clipper.dpdns.org
+# Access at http://localhost:port
 ```
 
 ## Google Drive Setup
