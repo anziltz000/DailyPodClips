@@ -90,6 +90,7 @@
                 <div class="log-container">
                     <div class="log-controls">
                         <label><input type="checkbox" id="autoscroll-downloader" checked> Auto-scroll</label>
+                        <button type="button" class="btn btn-secondary btn-small" onclick="copyLogs('downloader')">Copy Logs</button>
                     </div>
                     <div class="log-console" id="log-downloader"></div>
                 </div>
@@ -113,7 +114,7 @@
             <div class="block-body">
                 <div class="action-row">
                     <button class="btn btn-primary" id="btn-transcribe" onclick="startTranscribe()">
-                        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 4a1 1 0 011-1h4a1 1 0 011 1v1h3a1 1 0 110 2H4a1 1 0 110-2h3V4zM6 9a1 1 0 011 1v5a1 1 0 002 0v-5a1 1 0 112 0v5a1 1 0 002 0v-5a1 1 0 112 0v5a2 2 0 01-2 2H8a2 2 0 01-2-2v-5a1 1 0 011-1z"/></svg>
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
                         Transcribe
                     </button>
                 </div>
@@ -153,6 +154,7 @@
                 <div class="log-container" style="margin-top:1rem;">
                     <div class="log-controls">
                         <label><input type="checkbox" id="autoscroll-transcriber" checked> Auto-scroll</label>
+                        <button type="button" class="btn btn-secondary btn-small" onclick="copyLogs('transcriber')">Copy Logs</button>
                     </div>
                     <div class="log-console" id="log-transcriber"></div>
                 </div>
@@ -224,6 +226,7 @@
                 <div class="log-container" style="margin-top:1rem;">
                     <div class="log-controls">
                         <label><input type="checkbox" id="autoscroll-clipprocessor" checked> Auto-scroll</label>
+                        <button type="button" class="btn btn-secondary btn-small" onclick="copyLogs('clipprocessor')">Copy Logs</button>
                     </div>
                     <div class="log-console" id="log-clipprocessor"></div>
                 </div>

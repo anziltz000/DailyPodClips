@@ -113,6 +113,11 @@ async def broadcast_log(project_id: str, block_id: str, message: str):
         state["log_subscribers"][block_id] = []
     for queue in state["log_subscribers"][block_id]:
         await queue.put(message)
+    
+    # Save log to file
+    log_dir = get_project_dir(project_id, "logs")
+    async with aiofiles.open(log_dir / f"{block_id}.log", "a", encoding="utf-8") as f:
+        await f.write(message + "\n")
 
 async def run_subprocess_with_logs(project_id: str, block_id: str, cmd: list, cwd: str = None, env: dict = None) -> int:
     await broadcast_log(project_id, block_id, f">> {' '.join(cmd[:6])}...")
@@ -132,14 +137,16 @@ async def run_subprocess_with_logs(project_id: str, block_id: str, cmd: list, cw
             if text:
                 await broadcast_log(project_id, block_id, f"{prefix}{text}")
 
-    await asyncio.gather(
-        stream_pipe(process.stdout),
-        stream_pipe(process.stderr, "[stderr] "),
-    )
-    await process.wait()
-    get_pstate(project_id)["active_processes"].pop(block_id, None)
-    status = "DONE" if process.returncode == 0 else f"FAILED (code {process.returncode})"
-    await broadcast_log(project_id, block_id, status)
+    try:
+        await asyncio.gather(
+            stream_pipe(process.stdout),
+            stream_pipe(process.stderr, "[stderr] "),
+        )
+        await process.wait()
+    finally:
+        get_pstate(project_id)["active_processes"].pop(block_id, None)
+        status = "DONE" if process.returncode == 0 else f"FAILED (code {process.returncode})"
+        await broadcast_log(project_id, block_id, status)
     return process.returncode
 
 # -- PROJECTS API --
@@ -198,6 +205,14 @@ async def stream_logs(project_id: str, block_id: str, request: Request):
                 state["log_subscribers"][block_id].remove(queue)
 
     return EventSourceResponse(event_generator())
+
+@app.get("/api/logs/{project_id}/{block_id}/history")
+async def get_log_history(project_id: str, block_id: str):
+    log_dir = get_project_dir(project_id, "logs")
+    log_file = log_dir / f"{block_id}.log"
+    if log_file.exists():
+        return {"logs": log_file.read_text(encoding="utf-8", errors="replace")}
+    return {"logs": ""}
 
 # -- SETTINGS --
 @app.get("/api/settings")
@@ -304,6 +319,8 @@ async def transcribe_video(project_id: str = Depends(get_project_id)):
     await broadcast_log(project_id, block_id, f"Transcribing: {state['current_video']}")
     await broadcast_log(project_id, block_id, "Loading model...")
 
+    mock_proc = type("MockProc", (), {"returncode": None, "pid": 0})()
+    state["active_processes"][block_id] = mock_proc
     progress_q = thread_queue.Queue()
 
     def _transcribe_with_progress():
@@ -321,6 +338,9 @@ async def transcribe_video(project_id: str = Depends(get_project_id)):
             progress_q.put(("done", all_segments))
         except Exception as e:
             progress_q.put(("error", str(e)))
+        finally:
+            # Tell the main loop the thread is fully dead
+            progress_q.put(("thread_exit", None))
 
     whisper_thread = threading.Thread(target=_transcribe_with_progress, daemon=True)
     whisper_thread.start()
@@ -328,44 +348,48 @@ async def transcribe_video(project_id: str = Depends(get_project_id)):
     transcript_lines = []
     all_segments = []
 
-    while True:
-        try:
-            msg = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: progress_q.get(timeout=120)
-            )
-        except Exception:
-            await broadcast_log(project_id, block_id, "Transcription timed out")
-            raise HTTPException(500, "Transcription timed out")
+    try:
+        while True:
+            try:
+                msg = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: progress_q.get(timeout=120)
+                )
+            except Exception:
+                await broadcast_log(project_id, block_id, "Transcription timed out")
+                raise HTTPException(500, "Transcription timed out")
 
-        if msg[0] == "log":
-            await broadcast_log(project_id, block_id, msg[1])
-        elif msg[0] == "info":
-            info = msg[1]
-            await broadcast_log(project_id, block_id, f"Duration: {info.duration:.1f}s")
-        elif msg[0] == "segment":
-            seg, pct, count = msg[1], msg[2], msg[3]
-            start_s, end_s = int(seg.start), int(seg.end)
-            line = f"[{start_s:05d}s -> {end_s:05d}s] {seg.text.strip()}"
-            transcript_lines.append(line)
-            await broadcast_log(project_id, block_id, f"{pct}% | Seg {count}: {line[:90]}")
-        elif msg[0] == "done":
-            all_segments = msg[1]
-            await broadcast_log(project_id, block_id, f"Transcription complete")
-            break
-        elif msg[0] == "error":
-            await broadcast_log(project_id, block_id, f"ERROR: {msg[1]}")
-            raise HTTPException(500, f"Transcription failed: {msg[1]}")
+            if msg[0] == "log":
+                await broadcast_log(project_id, block_id, msg[1])
+            elif msg[0] == "info":
+                info = msg[1]
+                await broadcast_log(project_id, block_id, f"Duration: {info.duration:.1f}s")
+            elif msg[0] == "segment":
+                seg, pct, count = msg[1], msg[2], msg[3]
+                start_s, end_s = int(seg.start), int(seg.end)
+                line = f"[{start_s:05d}s -> {end_s:05d}s] {seg.text.strip()}"
+                transcript_lines.append(line)
+                await broadcast_log(project_id, block_id, f"{pct}% | Seg {count}: {line[:90]}")
+            elif msg[0] == "done":
+                all_segments = msg[1]
+                await broadcast_log(project_id, block_id, f"Transcription complete")
+            elif msg[0] == "error":
+                await broadcast_log(project_id, block_id, f"ERROR: {msg[1]}")
+                raise HTTPException(500, f"Transcription failed: {msg[1]}")
+            elif msg[0] == "thread_exit":
+                break
 
-    transcript_text = "\n".join(transcript_lines)
-    video_stem = Path(state["current_video"]).stem
-    transcript_name = f"{video_stem}_transcription.txt"
-    transcript_path = transcripts_dir / transcript_name
-    async with aiofiles.open(transcript_path, "w", encoding="utf-8") as f:
-        await f.write(transcript_text)
+        transcript_text = "\n".join(transcript_lines)
+        video_stem = Path(state["current_video"]).stem
+        transcript_name = f"{video_stem}_transcription.txt"
+        transcript_path = transcripts_dir / transcript_name
+        async with aiofiles.open(transcript_path, "w", encoding="utf-8") as f:
+            await f.write(transcript_text)
 
-    state["current_transcript"] = transcript_name
-    await broadcast_log(project_id, block_id, f"Saved: {transcript_name}")
-    return {"status": "ok", "filename": transcript_name, "transcript": transcript_text}
+        state["current_transcript"] = transcript_name
+        await broadcast_log(project_id, block_id, f"Saved: {transcript_name}")
+        return {"status": "ok", "filename": transcript_name, "transcript": transcript_text}
+    finally:
+        state["active_processes"].pop(block_id, None)
 
 # -- BLOCK 2: GDRIVE AUTH --
 @app.get("/api/gdrive/auth-url")
@@ -491,7 +515,7 @@ async def process_clips(req: ClipJSON, project_id: str = Depends(get_project_id)
         if rc != 0: continue
 
         silence_removed = temp_dir / f"clip{clip_num}_nosilence.mp4"
-        cmd = ["auto-editor", str(joined_file), "--margin", "0.15sec", "--output", str(silence_removed), "--no-open"]
+        cmd = ["python3", "-m", "auto_editor", str(joined_file), "--margin", "0.15sec", "--output", str(silence_removed), "--no-open"]
         rc = await run_subprocess_with_logs(project_id, block_id, cmd)
         if rc != 0:
             silence_removed = joined_file

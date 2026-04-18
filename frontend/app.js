@@ -15,6 +15,18 @@ function connectSSE(blockId) {
     }
     const logEl = document.getElementById(`log-${blockId}`);
     const pid = currentProjectId || 'default';
+
+    // Fetch history
+    apiGet(`/api/logs/${pid}/${blockId}/history`).then(res => {
+        if (res && res.logs) {
+            logEl.innerHTML = '';
+            const lines = res.logs.split('\n');
+            for (const line of lines) {
+                if (line) appendLog(logEl, line);
+            }
+        }
+    }).catch(console.error);
+
     const evtSource = new EventSource(`/api/logs/${pid}/${blockId}`);
 
     evtSource.addEventListener('log', (e) => {
@@ -64,7 +76,14 @@ async function apiPost(url, body = {}, method = 'POST') {
         headers: headers,
         body: JSON.stringify(body),
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+        data = JSON.parse(text);
+    } catch (e) {
+        if (!res.ok) throw new Error(`HTTP ${res.status}: Backend error`);
+        return text;
+    }
     if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
     return data;
 }
@@ -73,7 +92,14 @@ async function apiGet(url) {
     const headers = {};
     if (currentProjectId) headers['X-Project-Id'] = currentProjectId;
     const res = await fetch(url, { headers });
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+        data = JSON.parse(text);
+    } catch (e) {
+        if (!res.ok) throw new Error(`HTTP ${res.status}: Backend error`);
+        return text;
+    }
     if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
     return data;
 }
@@ -82,9 +108,27 @@ async function apiDelete(url) {
     const headers = {};
     if (currentProjectId) headers['X-Project-Id'] = currentProjectId;
     const res = await fetch(url, { method: 'DELETE', headers });
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+        data = JSON.parse(text);
+    } catch (e) {
+        if (!res.ok) throw new Error(`HTTP ${res.status}: Backend error`);
+        return text;
+    }
     if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
     return data;
+}
+
+function copyLogs(blockId) {
+    const logEl = document.getElementById(`log-${blockId}`);
+    if (logEl && logEl.innerText) {
+        navigator.clipboard.writeText(logEl.innerText).then(() => {
+            alert('Logs copied to clipboard!');
+        }).catch(err => {
+            console.error('Copy failed', err);
+        });
+    }
 }
 
 function setLoading(btnId, loading) {
@@ -185,6 +229,10 @@ function selectProject(id, name) {
     document.getElementById('current-project-name').textContent = name;
     document.getElementById('project-modal').close();
     
+    const savedJson = localStorage.getItem(`clip-json-${id}`);
+    if (savedJson) document.getElementById('clip-json').value = savedJson;
+    else document.getElementById('clip-json').value = '';
+
     // Reconnect SSE & refresh state
     ['downloader', 'transcriber', 'clipprocessor'].forEach(clearLog);
     ['downloader', 'transcriber', 'clipprocessor'].forEach(connectSSE);
@@ -438,6 +486,11 @@ async function refreshGallery() {
                         </div>
                     </details>
                     ` : ''}
+                    <div style="margin-top:0.75rem;">
+                        <a href="${clip.url}" download="${clip.filename}" class="btn btn-secondary btn-small" style="text-decoration:none; display:block; text-align:center;">
+                            Download File
+                        </a>
+                    </div>
                 </div>
             </div>
         `}).join('');
@@ -542,6 +595,12 @@ document.addEventListener('DOMContentLoaded', () => {
             Notification.requestPermission().catch(e => console.warn(e));
         }
     } catch (e) {}
+
+    document.getElementById('clip-json').addEventListener('input', (e) => {
+        if (currentProjectId) {
+            localStorage.setItem(`clip-json-${currentProjectId}`, e.target.value);
+        }
+    });
 
     loadProjects().then(() => {
         if (currentProjectId) {
